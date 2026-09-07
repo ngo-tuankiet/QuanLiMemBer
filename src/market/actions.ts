@@ -262,11 +262,18 @@ export async function setManualQuoteAction(
  */
 const SYNC_TIMEOUT_SECONDS = Number(process.env.MARKET_DATA_SYNC_TIMEOUT ?? '180') || 180;
 
-/** Đường dẫn tới interpreter của venv và thư mục service. */
+/** Đường dẫn tới interpreter của venv và thư mục service (hỗ trợ cả Windows và Linux). */
 function duongDanService(): { python: string; cwd: string } {
   const cwd = path.join(process.cwd(), 'services', 'market-data');
+  const winPython = path.join(cwd, '.venv', 'Scripts', 'python.exe');
+  const posixPython = path.join(cwd, '.venv', 'bin', 'python');
+
+  const python = process.platform === 'win32'
+    ? (existsSync(winPython) ? winPython : posixPython)
+    : (existsSync(posixPython) ? posixPython : winPython);
+
   return {
-    python: path.join(cwd, '.venv', 'Scripts', 'python.exe'),
+    python,
     cwd,
   };
 }
@@ -371,12 +378,15 @@ export async function syncMarketDataAction(): Promise<ActionResult> {
   const { python, cwd } = duongDanService();
 
   if (!existsSync(python)) {
+    const isWin = process.platform === 'win32';
+    const hd = isWin
+      ? 'python -m venv .venv rồi .venv\\Scripts\\python.exe -m pip install -r requirements.txt'
+      : 'python3 -m venv .venv rồi .venv/bin/pip install -r requirements.txt';
     return {
       ok: false,
       message:
         `Chưa có môi trường Python tại ${path.relative(process.cwd(), python)}. ` +
-        'Tạo bằng: python -m venv .venv rồi .venv\\Scripts\\python.exe -m pip install -r requirements.txt ' +
-        '(trong services/market-data).',
+        `Tạo bằng: ${hd} (trong services/market-data).`,
     };
   }
 
