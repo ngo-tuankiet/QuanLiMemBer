@@ -1,0 +1,8 @@
+# Market Data Service — Phase 07
+#
+# vnstock la thu vien Python boc cac nguon du lieu chung khoan Viet Nam.
+# Da kiem chung voi phien ban duoi day, nguon `vci`.
+#
+# Khong can them thu vien HTTP: service dung urllib cua stdlib de goi cong nap
+# du lieu, va khong mo ket noi database nao.
+vnstock==4.0.7

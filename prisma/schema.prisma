@@ -1,0 +1,1111 @@
+// ===========================================================================
+//  VIETNAM SECURITIES INVESTMENT MANAGEMENT DASHBOARD
+//  Phase 01 - Database & Data Model
+// ===========================================================================
+//
+//  NGUYÊN TẮC THIẾT KẾ (bám theo đặc tả §23):
+//
+//  1. Không lưu P&L thủ công.
+//     Position / Average Cost / Market Value / P&L / Weight KHÔNG có bảng riêng.
+//     Tất cả được tính từ Trade + MarketQuote bởi Portfolio Engine (Phase 06).
+//     Ngoại lệ duy nhất: PortfolioSnapshot — ảnh chụp cuối ngày, dùng để vẽ
+//     đường hiệu suất lịch sử (không thể tính lại giá quá khứ một cách rẻ).
+//
+//  2. Strategy thuộc Trade, không thuộc User.
+//     Một Trade phân bổ cho nhiều Strategy qua bảng TradeStrategy.
+//     Tổng allocationBps của một Trade luôn = 10000 (100.00%).
+//
+//  3. Tiền tệ = BigInt, đơn vị VNĐ nguyên.
+//     Giá cổ phiếu Việt Nam luôn là số nguyên đồng (25300), bước giá 10/50/100.
+//     Phí/thuế môi giới làm tròn tới đồng. Do đó BigInt là CHÍNH XÁC TUYỆT ĐỐI
+//     và hoạt động y hệt trên SQLite (INTEGER 64-bit) lẫn Postgres (BIGINT).
+//     KHÔNG dùng Float/Decimal cho tiền — xem docs/DATA-MODEL.md.
+//
+//  4. Tỷ lệ phần trăm = Int, đơn vị basis point (bps).
+//     10000 bps = 100.00% ; 5000 bps = 50.00% ; 336 bps = 3.36%.
+//     Cộng trừ tỷ lệ luôn khớp tuyệt đối, không có sai số dấu phẩy động.
+//
+//  5. Master data bắt buộc.
+//     Stock / Sector / Industry / Strategy / Team / Role / Permission đều là
+//     bảng riêng. Người dùng không được nhập tay mã cổ phiếu hay tên ngành.
+//
+//  6. Audit Log bất biến.
+//     Mọi thay đổi ghi Who / When / What / Before / After. AuditLog không có
+//     updatedAt và không bao giờ được UPDATE/DELETE.
+//
+//  GIỚI HẠN SQLITE (tạm thời):
+//     Prisma trên SQLite không hỗ trợ `enum`, `Json`, scalar list.
+//     → enum  = String  + hằng số TypeScript trong src/lib/enums.ts
+//     → Json  = String  chứa JSON text (tên field kết thúc bằng `Json`)
+//     Khi chuyển Postgres chỉ cần đổi kiểu, không đổi cấu trúc quan hệ.
+//     Chi tiết: docs/POSTGRES-MIGRATION.md
+// ===========================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================================================
+//  KHỐI 1 — RBAC: ROLE / PERMISSION
+// ===========================================================================
+
+/// Vai trò hệ thống: ADMIN, SENIOR_MANAGER, EXECUTION, SUPPORTING_EXECUTION, MEMBER.
+/// Là bảng (không phải enum cứng) vì Admin có quyền "Quản lý permission" (§3).
+model Role {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String
+  nameVi      String
+  description String?
+  /// Cấp bậc để so sánh thẩm quyền: ADMIN=100 ... MEMBER=10
+  level       Int
+  /// Role hệ thống thì không cho xoá
+  isSystem    Boolean @default(true)
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+/// Danh mục quyền hạn dạng `module.action`, ví dụ `transaction.approve`.
+model Permission {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  module      String
+  action      String
+  name        String
+  nameVi      String
+  description String?
+
+  createdAt DateTime @default(now())
+
+  rolePermissions RolePermission[]
+  userPermissions UserPermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+/// Quyền cấp riêng cho từng user, ghi đè quyền của Role.
+/// Phục vụ §3: "Member chỉ được thao tác trong phạm vi được Admin/Manager phân quyền".
+/// Quy tắc giải quyết xung đột: DENY luôn thắng GRANT.
+model UserPermission {
+  id           String    @id @default(cuid())
+  userId       String
+  permissionId String
+  /// GRANT | DENY
+  effect       String
+  grantedById  String?
+  grantedAt    DateTime  @default(now())
+  expiresAt    DateTime?
+  note         String?
+
+  user       User       @relation("UserPermissionOwner", fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  grantedBy  User?      @relation("UserPermissionGrantedBy", fields: [grantedById], references: [id])
+
+  @@unique([userId, permissionId])
+  @@map("user_permissions")
+}
+
+// ===========================================================================
+//  KHỐI 2 — CƠ CẤU TỔ CHỨC: DEPARTMENT / TEAM / USER
+// ===========================================================================
+
+/// Cây phòng ban (§2): Senior Management → Investment Management → ... ; Members.
+model Department {
+  id        String  @id @default(cuid())
+  code      String  @unique
+  name      String
+  nameVi    String
+  parentId  String?
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent   Department?  @relation("DepartmentTree", fields: [parentId], references: [id])
+  children Department[] @relation("DepartmentTree")
+  teams    Team[]
+  users    User[]
+
+  @@map("departments")
+}
+
+/// Nhóm thực thi (§2): Execution Team, Portfolio Management, Supporting Execution Team.
+model Team {
+  id           String  @id @default(cuid())
+  code         String  @unique
+  name         String
+  nameVi       String
+  description  String?
+  departmentId String
+  leaderId     String?
+  isActive     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  department   Department        @relation(fields: [departmentId], references: [id])
+  leader       User?             @relation("TeamLeader", fields: [leaderId], references: [id])
+  members      User[]            @relation("TeamMembers")
+  trades       Trade[]
+  portfolios   Portfolio[]
+  accesses     PortfolioAccess[]
+  capitalFlows CapitalFlow[]
+
+  @@index([departmentId])
+  @@map("teams")
+}
+
+/// Người dùng. LƯU Ý: user KHÔNG có Strategy (§4) — Strategy nằm ở từng Trade.
+/// Luồng: Register → PENDING → Admin gán Role/Department/Team → ACTIVE.
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  passwordHash String
+  fullName     String
+  phone        String?
+  employeeCode String? @unique
+  avatarUrl    String?
+
+  /// PENDING | ACTIVE | SUSPENDED | REJECTED
+  status String @default("PENDING")
+
+  /// Null khi còn PENDING — Admin gán sau khi duyệt
+  roleId       String?
+  departmentId String?
+  teamId       String?
+
+  approvedById   String?
+  approvedAt     DateTime?
+  rejectedReason String?
+
+  lastLoginAt        DateTime?
+  mustChangePassword Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  role       Role?       @relation(fields: [roleId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+  team       Team?       @relation("TeamMembers", fields: [teamId], references: [id])
+  approvedBy User?       @relation("UserApprovedBy", fields: [approvedById], references: [id])
+
+  approvedUsers    User[]            @relation("UserApprovedBy")
+  ledTeams         Team[]            @relation("TeamLeader")
+  permissions      UserPermission[]  @relation("UserPermissionOwner")
+  permissionsGiven UserPermission[]  @relation("UserPermissionGrantedBy")
+  portfolioAccess  PortfolioAccess[] @relation("PortfolioAccessUser")
+  accessGranted    PortfolioAccess[] @relation("PortfolioAccessGrantedBy")
+
+  tradesExecuted  Trade[] @relation("TradeExecutor")
+  tradesCreated   Trade[] @relation("TradeCreatedBy")
+  tradesUpdated   Trade[] @relation("TradeUpdatedBy")
+  tradesApproved  Trade[] @relation("TradeApprovedBy")
+  tradesCancelled Trade[] @relation("TradeCancelledBy")
+
+  attachments        TradeAttachment[]
+  capitalFlows       CapitalFlow[]     @relation("CapitalFlowCreatedBy")
+  capitalApprovals   CapitalFlow[]     @relation("CapitalFlowApprovedBy")
+  approvalsRequested ApprovalRequest[] @relation("ApprovalRequestedBy")
+  approvalsDecided   ApprovalRequest[] @relation("ApprovalDecidedBy")
+  riskRulesCreated   RiskRule[]
+  riskAlertsHandled  RiskAlert[]
+  riskScansTriggered RiskScanRun[]
+  auditLogs          AuditLog[]
+  settingsUpdated    SystemSetting[]
+  syncsTriggered     MarketDataSync[]
+  sessions           Session[]         @relation("SessionUser")
+  sessionsRevoked    Session[]         @relation("SessionRevokedBy")
+  brokerAccounts     BrokerAccount[]
+
+  @@index([status])
+  @@index([roleId])
+  @@index([teamId])
+  @@map("users")
+}
+
+/// Phiên đăng nhập (Phase 02).
+///
+/// Dùng token đối xứng dạng opaque (32 byte ngẫu nhiên) thay vì JWT tự chứa:
+/// JWT không thu hồi được trước khi hết hạn, còn hệ thống quản lý vốn thì phải
+/// đăng xuất được ngay khi Admin khoá tài khoản hoặc đổi quyền.
+///
+/// Chỉ lưu SHA-256 của token. Rò rỉ database cũng không cho phép mạo danh ai.
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  /// SHA-256 hex của token trong cookie. Không bao giờ lưu token gốc.
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  ipAddress String?
+  userAgent String?
+
+  /// Đặt khi đăng xuất, khi Admin khoá tài khoản, hoặc khi đổi mật khẩu.
+  revokedAt   DateTime?
+  revokedById String?
+
+  user      User  @relation("SessionUser", fields: [userId], references: [id], onDelete: Cascade)
+  revokedBy User? @relation("SessionRevokedBy", fields: [revokedById], references: [id])
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// ===========================================================================
+//  KHỐI 3 — MASTER DATA THỊ TRƯỜNG: SECTOR / INDUSTRY / STOCK
+// ===========================================================================
+
+/// Ngành cấp 1, ví dụ FINANCIALS (Tài chính). Phục vụ Sector Exposure (§15).
+model Sector {
+  id        String  @id @default(cuid())
+  code      String  @unique
+  name      String
+  nameVi    String
+  colorHex  String?
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  industries Industry[]
+  stocks     Stock[]
+
+  @@map("sectors")
+}
+
+/// Phân ngành cấp 2, ví dụ BANKS (Ngân hàng) thuộc FINANCIALS.
+model Industry {
+  id        String  @id @default(cuid())
+  code      String  @unique
+  name      String
+  nameVi    String
+  sectorId  String
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sector Sector  @relation(fields: [sectorId], references: [id])
+  stocks Stock[]
+
+  @@index([sectorId])
+  @@map("industries")
+}
+
+/// Danh mục mã chuẩn (§7). Người dùng CHỌN từ bảng này, không nhập tự do.
+model Stock {
+  id            String  @id @default(cuid())
+  symbol        String  @unique
+  companyName   String
+  companyNameVi String?
+  /// HOSE | HNX | UPCOM
+  exchange      String
+  sectorId      String
+  industryId    String?
+  /// ACTIVE | SUSPENDED | DELISTED | WATCHLIST
+  status        String  @default("ACTIVE")
+  listedShares  BigInt?
+  isin          String?
+  website       String?
+  note          String?
+  /// Có nằm trong rổ VN30 — dùng để lọc nhanh trên UI
+  isVn30        Boolean @default(false)
+  /// Có nằm trong rổ VN100.
+  ///
+  /// Quyết định mã nào được LẤY GIÁ định kỳ: cổng nạp trả về "đang đầu tư + VN100"
+  /// (xem GET /api/market-data/ingest). Không kéo giá cả 1.600 mã của thị trường,
+  /// nhưng cũng không bó lại đúng những mã đã có giao dịch — mã chưa mua bao giờ mà
+  /// không có giá thì không thể theo dõi để quyết định mua.
+  ///
+  /// Nguồn sự thật là VN100_SEED trong src/data/master-data.ts.
+  isVn100       Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sector   Sector    @relation(fields: [sectorId], references: [id])
+  industry Industry? @relation(fields: [industryId], references: [id])
+
+  trades       Trade[]
+  quote        MarketQuote?
+  priceHistory PriceHistory[]
+
+  @@index([sectorId])
+  @@index([industryId])
+  @@index([exchange])
+  @@index([status])
+  @@map("stocks")
+}
+
+// ===========================================================================
+//  KHỐI 4 — VỐN & DANH MỤC
+// ===========================================================================
+
+/// Danh mục đầu tư. Available Cash và Invested Capital KHÔNG lưu ở đây —
+/// chúng được tính từ CapitalFlow + Trade (§9, §14).
+model Portfolio {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String
+  nameVi      String?
+  description String?
+  ownerTeamId String?
+
+  /// Quỹ dự phòng (Reserve, §14) — VNĐ. Đây là hạn mức do người quản lý đặt,
+  /// là dữ liệu nhập, không phải giá trị tính toán.
+  reserveAmount BigInt @default(0)
+
+  /// Tỷ trọng tối đa cho 1 mã / 1 ngành, bps. Null = dùng ngưỡng toàn hệ thống.
+  maxStockWeightBps  Int?
+  maxSectorWeightBps Int?
+
+  /// ACTIVE | CLOSED | ARCHIVED
+  status        String   @default("ACTIVE")
+  baseCurrency  String   @default("VND")
+  inceptionDate DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownerTeam Team? @relation(fields: [ownerTeamId], references: [id])
+
+  capitalFlows CapitalFlow[]
+  trades       Trade[]
+  accesses     PortfolioAccess[]
+  snapshots    PortfolioSnapshot[]
+  riskRules    RiskRule[]
+  riskAlerts   RiskAlert[]
+
+  @@map("portfolios")
+}
+
+/// Phân quyền xem/giao dịch trên từng danh mục (§3: "Xem danh mục được phân quyền").
+/// Gán cho Team hoặc cho từng User.
+model PortfolioAccess {
+  id          String    @id @default(cuid())
+  portfolioId String
+  teamId      String?
+  userId      String?
+  /// VIEW | TRADE | MANAGE
+  accessLevel String
+  grantedById String?
+  grantedAt   DateTime  @default(now())
+  expiresAt   DateTime?
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  team      Team?     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User?     @relation("PortfolioAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy User?     @relation("PortfolioAccessGrantedBy", fields: [grantedById], references: [id])
+
+  @@unique([portfolioId, teamId])
+  @@unique([portfolioId, userId])
+  @@map("portfolio_accesses")
+}
+
+/// Dòng tiền KHÔNG phát sinh từ giao dịch cổ phiếu: nạp/rút vốn, cổ tức, lãi tiền gửi.
+/// Available Cash = Σ CapitalFlow (theo dấu) − Σ tiền chi mua + Σ tiền thu bán.
+/// Tiền của Trade KHÔNG ghi ở đây để tránh đếm trùng — nó được suy ra từ bảng Trade.
+model CapitalFlow {
+  id          String   @id @default(cuid())
+  portfolioId String
+  /// CONTRIBUTION | WITHDRAWAL | DIVIDEND | INTEREST | OTHER_INCOME | OTHER_EXPENSE
+  flowType    String
+  /// Luôn là số dương, VNĐ. Chiều tiền suy ra từ flowType (xem src/lib/enums.ts).
+  amount      BigInt
+  occurredAt  DateTime
+  reference   String?
+  note        String?
+  /// PENDING | CONFIRMED | CANCELLED
+  status      String   @default("CONFIRMED")
+
+  /// Nhóm được cấp riêng phần vốn này.
+  ///
+  /// `null` = QUỸ CHUNG, chưa cấp riêng cho nhóm nào — và đó là mặc định. Mọi
+  /// dòng vốn có trước cột này đều là null, nên "vốn được cấp" của mỗi nhóm khởi
+  /// điểm bằng 0 chứ không phải một phần chia sẵn: chia hồi tố là bịa dữ liệu.
+  ///
+  /// Nullable là CỐ Ý và sẽ giữ nguyên. Cổ tức và lãi tiền gửi về danh mục chứ
+  /// không về nhóm nào (bảng cũng không có `stockId` để suy ra), nên bắt buộc phải
+  /// có chỗ cho những dòng không thuộc nhóm nào.
+  teamId String?
+
+  /// Tài khoản chứng khoán mà khoản tiền này đi vào/ra.
+  ///
+  /// `null` với mọi dòng vốn ghi ở cấp danh mục (kể cả cổ tức và lãi tiền gửi, và
+  /// toàn bộ dữ liệu có trước cột này). Một khoản nạp vào tài khoản của thành viên
+  /// là MỘT dòng ở đây — không có bảng thứ hai ghi lại cùng số tiền đó.
+  brokerAccountId String?
+
+  createdById  String
+  approvedById String?
+  approvedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portfolio     Portfolio      @relation(fields: [portfolioId], references: [id])
+  team          Team?          @relation(fields: [teamId], references: [id])
+  brokerAccount BrokerAccount? @relation(fields: [brokerAccountId], references: [id])
+  createdBy     User           @relation("CapitalFlowCreatedBy", fields: [createdById], references: [id])
+  approvedBy    User?          @relation("CapitalFlowApprovedBy", fields: [approvedById], references: [id])
+
+  @@index([portfolioId, occurredAt])
+  @@index([flowType])
+  /// Truy vấn nóng nhất: số dư tiền của một nhóm trong một danh mục.
+  @@index([portfolioId, teamId, status])
+  @@index([brokerAccountId])
+  @@map("capital_flows")
+}
+
+/// TÀI KHOẢN CHỨNG KHOÁN của một thành viên.
+///
+/// Đây là nơi tiền thật sự nằm. Một người có thể mở nhiều tài khoản ở nhiều công ty
+/// chứng khoán, và vốn được nạp vào từng tài khoản.
+///
+/// TIỀN NẠP KHÔNG NẰM Ở BẢNG NÀY. Mỗi lần nạp là một dòng `capital_flows` trỏ về đây
+/// qua `brokerAccountId`. Nếu bảng này có thêm cột `depositedAmount` thì cùng một số
+/// tiền được ghi ở hai chỗ, và hai chỗ đó sẽ lệch nhau — chỉ là vấn đề thời gian.
+/// Tổng nạp của một tài khoản luôn là phép cộng trên `capital_flows`.
+/// DANH MỤC IB (Introducing Broker) — do quản trị khai sẵn.
+///
+/// VÌ SAO LÀ BẢNG CHỨ KHÔNG PHẢI Ô TỰ GÕ. Trước đây `broker_accounts.ibName` là chuỗi
+/// người dùng tự nhập, nên "Bùi Hải", "bùi hải" và "Bui Hai" cùng tồn tại và tách một
+/// IB thành ba dòng trên Dashboard — mỗi dòng một phần vốn. Cái sai đó trông y như dữ
+/// liệu thật nên không ai kiểm lại. `computeIbExposure` từng phải gộp theo tên chuẩn
+/// hoá để chữa; chọn từ danh mục thì không còn gì để chữa.
+///
+/// KHÔNG GẮN SÀN. Một IB dùng chung cho mọi sàn — quyết định của người vận hành.
+model IntroducingBroker {
+  id String @id @default(cuid())
+
+  /// Mã ngắn, viết hoa. Là thứ người dùng đọc lướt trong ô chọn, và là khoá ổn định
+  /// khi đổi tên hiển thị. KHÔNG sửa được sau khi tạo — xem chú thích ở ib-actions.ts.
+  code String  @unique
+  /// Tên hiển thị đầy đủ.
+  name String
+  note String?
+
+  /// Thứ tự trong ô chọn. Cùng giá trị thì xếp theo `code`.
+  sortOrder Int @default(0)
+
+  /// BIỂU PHÍ VÀ THUẾ RIÊNG CỦA IB NÀY — đơn vị bps (15 = 0,15%).
+  ///
+  /// NULL = dùng mức chung trong `system_settings`, KHÔNG phải bằng 0. Phân biệt này
+  /// là điểm mấu chốt: 0 nghĩa là "IB này miễn phí", còn NULL nghĩa là "chưa khai
+  /// riêng, theo mức chung". Gộp hai thứ đó vào một giá trị thì không bao giờ đổi
+  /// được mức chung cho các IB chưa khai — mà đó chính là lý do có mức chung.
+  ///
+  /// Phí MUA và phí BÁN tách riêng vì có IB tính hai mức khác nhau. Thuế chỉ áp khi
+  /// bán (thuế TNCN trên giá trị bán), nên không có ô thuế mua.
+  buyFeeRateBps  Int?
+  sellFeeRateBps Int?
+  sellTaxRateBps Int?
+
+  /// false = ngừng dùng. KHÔNG xoá: tài khoản đã khai theo IB này phải còn tra được.
+  /// IB đã tắt không hiện trong ô chọn nữa nhưng vẫn hiện đúng tên ở chỗ đã gắn.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts BrokerAccount[]
+
+  @@map("introducing_brokers")
+}
+
+model BrokerAccount {
+  id     String @id @default(cuid())
+  /// Chủ tài khoản. Chỉ chính chủ được thêm/sửa tài khoản của mình.
+  userId String
+
+  /// Mã sàn — xem `BROKER` trong src/lib/enums.ts.
+  broker      String
+  /// Tên sàn tự điền, BẮT BUỘC khi broker = OTHER và bỏ trống ở mọi trường hợp khác.
+  brokerOther String?
+  /// Số tài khoản tại sàn, giữ nguyên định dạng sàn cấp.
+  accountNo   String
+  /// IB quản lý tài khoản. NULL = mở trực tiếp, không qua IB — một câu trả lời
+  /// thật, không phải dữ liệu thiếu (xem `computeIbExposure`).
+  ibId        String?
+  note        String?
+
+  /// false = đã đóng tài khoản. KHÔNG xoá: lịch sử nạp vốn phải còn nguyên.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User               @relation(fields: [userId], references: [id])
+  ib           IntroducingBroker? @relation(fields: [ibId], references: [id])
+  capitalFlows CapitalFlow[]
+  trades       Trade[]
+
+  /// Một số tài khoản ở một sàn chỉ được khai MỘT lần trong toàn hệ thống.
+  ///
+  /// Đây là chốt chống đếm trùng vốn: hai người cùng khai một tài khoản thì số tiền
+  /// nạp vào nó sẽ được cộng hai lần vào tiền của danh mục.
+  @@unique([broker, accountNo])
+  @@index([userId])
+  @@index([ibId])
+  @@map("broker_accounts")
+}
+
+// ===========================================================================
+//  KHỐI 5 — STRATEGY & TRADE  (trái tim của hệ thống, §5 & §6)
+// ===========================================================================
+
+/// Chiến lược đầu tư (§5). Thêm strategy mới không cần đổi kiến trúc.
+model Strategy {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String
+  nameVi      String
+  description String?
+  colorHex    String?
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+
+  /// Hạn mức tỷ trọng tối đa của strategy trong danh mục (bps) — dùng cho Risk Engine.
+  maxAllocationBps Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tradeStrategies TradeStrategy[]
+
+  @@map("strategies")
+}
+
+/// Giao dịch mua/bán (§8). KHÔNG lưu grossAmount/netAmount/P&L — tất cả suy ra
+/// từ quantity × price ± fees ± tax bởi src/lib/money.ts.
+model Trade {
+  id          String @id @default(cuid())
+  /// Mã giao dịch dễ đọc, ví dụ TXN-2026-000001
+  code        String @unique
+  portfolioId String
+  stockId     String
+
+  /// BUY | SELL
+  transactionType String
+  /// Số lượng cổ phiếu (số nguyên)
+  quantity        Int
+  /// Giá khớp, VNĐ/cổ phiếu (số nguyên — bước giá HOSE là 10/50/100đ)
+  price           BigInt
+  /// Phí giao dịch, VNĐ
+  fees            BigInt @default(0)
+  /// Thuế TNCN (thường 0.1% giá trị bán), VNĐ
+  tax             BigInt @default(0)
+
+  executedAt DateTime
+
+  /// DRAFT | PENDING_APPROVAL | APPROVED | EXECUTED | REJECTED | CANCELLED
+  status String @default("DRAFT")
+
+  /// Người thực hiện lệnh (§8). Không suy ra Strategy từ người này.
+  userId String
+  teamId String?
+
+  /// Tài khoản chứng khoán mà lệnh này được thực hiện qua.
+  ///
+  /// BẮT BUỘC với lệnh nhập mới — không có tài khoản thì không có chỗ để tiền ra/vào,
+  /// và số dư từng tài khoản không tính được.
+  ///
+  /// Nullable ở tầng database vì các lệnh có TRƯỚC cột này không mang thông tin đó,
+  /// và gán bừa một tài khoản cho chúng là bịa dữ liệu. Ràng buộc "bắt buộc" nằm ở
+  /// `tradeSchema` và ở `createTradeAction` — nơi biết được lệnh nào là mới.
+  brokerAccountId String?
+
+  orderId          String?
+  broker           String?
+  executionNote    String?
+  investmentThesis String?
+
+  createdById   String
+  updatedById   String?
+  approvedById  String?
+  approvedAt    DateTime?
+  cancelledById String?
+  cancelledAt   DateTime?
+
+  /// Optimistic locking — chống 2 người sửa cùng lúc làm mất dấu vết
+  version Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portfolio     Portfolio      @relation(fields: [portfolioId], references: [id])
+  stock         Stock          @relation(fields: [stockId], references: [id])
+  executor      User           @relation("TradeExecutor", fields: [userId], references: [id])
+  team          Team?          @relation(fields: [teamId], references: [id])
+  brokerAccount BrokerAccount? @relation(fields: [brokerAccountId], references: [id])
+  createdBy     User           @relation("TradeCreatedBy", fields: [createdById], references: [id])
+  updatedBy     User?          @relation("TradeUpdatedBy", fields: [updatedById], references: [id])
+  approvedBy    User?          @relation("TradeApprovedBy", fields: [approvedById], references: [id])
+  cancelledBy   User?          @relation("TradeCancelledBy", fields: [cancelledById], references: [id])
+
+  strategies  TradeStrategy[]
+  attachments TradeAttachment[]
+
+  @@index([portfolioId, executedAt])
+  @@index([stockId, executedAt])
+  @@index([status])
+  @@index([userId])
+  @@index([teamId])
+  @@index([brokerAccountId])
+  @@index([transactionType])
+  @@map("trades")
+}
+
+/// ĐÂY LÀ CẤU TRÚC CỐT LÕI (§6): một Trade phân bổ cho nhiều Strategy.
+///
+///   BUY MBB  10,000 @ 25,300  =  253,000,000đ
+///     Value        50%  →  126,500,000đ
+///     Signal       30%  →   75,900,000đ
+///     Accumulation 20%  →   50,600,000đ
+///
+/// Ràng buộc bất biến: Σ allocationBps theo tradeId = 10000.
+/// SQLite/Postgres không kiểm được ràng buộc liên-dòng này bằng CHECK, nên nó
+/// được cưỡng chế ở 2 lớp: zod (src/domain/validation.ts) + transaction ghi Trade.
+model TradeStrategy {
+  id         String @id @default(cuid())
+  tradeId    String
+  strategyId String
+
+  /// Tỷ lệ phân bổ, basis point. 5000 = 50.00%
+  allocationBps    Int
+  /// Số tiền đã phân bổ, VNĐ. Chốt cứng lúc ghi bằng thuật toán largest-remainder
+  /// để Σ allocationAmount = netAmount TUYỆT ĐỐI, không lệch 1 đồng do làm tròn.
+  allocationAmount BigInt
+
+  note      String?
+  createdAt DateTime @default(now())
+
+  trade    Trade    @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  strategy Strategy @relation(fields: [strategyId], references: [id])
+
+  @@unique([tradeId, strategyId])
+  @@index([strategyId])
+  @@map("trade_strategies")
+}
+
+/// Tệp đính kèm cho giao dịch (§8, phần "có thể bổ sung").
+model TradeAttachment {
+  id           String   @id @default(cuid())
+  tradeId      String
+  fileName     String
+  filePath     String
+  mimeType     String?
+  sizeBytes    Int?
+  uploadedById String
+  uploadedAt   DateTime @default(now())
+
+  trade      Trade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  uploadedBy User  @relation(fields: [uploadedById], references: [id])
+
+  @@index([tradeId])
+  @@map("trade_attachments")
+}
+
+// ===========================================================================
+//  KHỐI 6 — DỮ LIỆU THỊ TRƯỜNG (§10)
+//  Frontend không bao giờ gọi VNStock trực tiếp. Market Data Service ghi vào đây.
+// ===========================================================================
+
+/// Giá mới nhất của mỗi mã — đúng 1 dòng / 1 mã, luôn upsert.
+model MarketQuote {
+  id      String @id @default(cuid())
+  stockId String @unique
+
+  /// Giá khớp gần nhất, VNĐ
+  price          BigInt
+  referencePrice BigInt?
+  ceilingPrice   BigInt?
+  floorPrice     BigInt?
+  openPrice      BigInt?
+  highPrice      BigInt?
+  lowPrice       BigInt?
+  /// Khối lượng khớp trong ngày
+  volume         BigInt?
+  /// Giá trị khớp trong ngày, VNĐ
+  turnover       BigInt?
+  /// Biến động so với giá tham chiếu, bps. +336 = +3.36%
+  changeBps      Int?
+
+  tradingDate DateTime
+  source      String   @default("VNSTOCK")
+  /// Bật khi dữ liệu quá cũ → Dashboard hiện "Market Data Delayed" (§10)
+  isStale     Boolean  @default(false)
+  fetchedAt   DateTime
+
+  updatedAt DateTime @updatedAt
+
+  stock Stock @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  @@index([tradingDate])
+  @@map("market_quotes")
+}
+
+/// OHLCV theo ngày — dùng cho biểu đồ hiệu suất 1W/1M/3M/6M/YTD/ALL (§13).
+model PriceHistory {
+  id          String   @id @default(cuid())
+  stockId     String
+  tradingDate DateTime
+
+  openPrice  BigInt
+  highPrice  BigInt
+  lowPrice   BigInt
+  closePrice BigInt
+  volume     BigInt  @default(0)
+  turnover   BigInt?
+
+  source    String   @default("VNSTOCK")
+  createdAt DateTime @default(now())
+
+  stock Stock @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  @@unique([stockId, tradingDate])
+  @@index([tradingDate])
+  @@map("price_history")
+}
+
+/// Chỉ số thị trường (VNINDEX, VN30, HNXINDEX) để tính Alpha (§13).
+/// closeValue lưu theo đơn vị ×100: VN-Index 1285.43 → 128543.
+model MarketIndexHistory {
+  id          String   @id @default(cuid())
+  indexCode   String
+  tradingDate DateTime
+
+  openValue  BigInt?
+  highValue  BigInt?
+  lowValue   BigInt?
+  closeValue BigInt
+  volume     BigInt?
+
+  source    String   @default("VNSTOCK")
+  createdAt DateTime @default(now())
+
+  @@unique([indexCode, tradingDate])
+  @@index([indexCode, tradingDate])
+  @@map("market_index_history")
+}
+
+/// Nhật ký đồng bộ dữ liệu thị trường — nguồn dữ liệu cho ô trạng thái
+/// "Market Data ● Connected / Last Updated 14:45:12 / Data Status ● Normal" (§10).
+model MarketDataSync {
+  id     String @id @default(cuid())
+  source String @default("VNSTOCK")
+  /// QUOTE | HISTORY | INDEX | STOCK_MASTER
+  kind   String @default("QUOTE")
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  /// RUNNING | SUCCESS | PARTIAL | FAILED
+  status     String    @default("RUNNING")
+
+  symbolsRequested Int @default(0)
+  symbolsUpdated   Int @default(0)
+  symbolsFailed    Int @default(0)
+
+  durationMs    Int?
+  errorMessage  String?
+  /// CRON | MANUAL | STARTUP
+  triggeredBy   String  @default("CRON")
+  triggeredById String?
+
+  triggeredByUser User? @relation(fields: [triggeredById], references: [id])
+
+  @@index([startedAt])
+  @@index([status])
+  @@map("market_data_syncs")
+}
+
+// ===========================================================================
+//  KHỐI 7 — ẢNH CHỤP HIỆU SUẤT (§13)
+// ===========================================================================
+
+/// Ngoại lệ duy nhất của nguyên tắc "không lưu giá trị tính toán".
+/// Đây là ảnh chụp cuối ngày, KHÔNG phải nguồn sự thật: có thể xoá và tính lại
+/// từ Trade + PriceHistory bất cứ lúc nào.
+model PortfolioSnapshot {
+  id           String   @id @default(cuid())
+  portfolioId  String
+  snapshotDate DateTime
+
+  marketValue   BigInt
+  costValue     BigInt
+  cashBalance   BigInt
+  reserveAmount BigInt
+  totalCapital  BigInt
+  realizedPnl   BigInt
+  unrealizedPnl BigInt
+
+  /// Giá đóng cửa VN-Index cùng ngày (×100) để tính Alpha
+  benchmarkClose BigInt?
+  positionCount  Int     @default(0)
+
+  computedAt DateTime @default(now())
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioId, snapshotDate])
+  @@index([snapshotDate])
+  @@map("portfolio_snapshots")
+}
+
+// ===========================================================================
+//  KHỐI 8 — RISK & ALERT (§19)
+// ===========================================================================
+
+/// Ngưỡng cảnh báo cấu hình được — đặc tả yêu cầu "các ngưỡng phải cấu hình được".
+model RiskRule {
+  id     String @id @default(cuid())
+  code   String @unique
+  name   String
+  nameVi String
+
+  /// STOCK | SECTOR | STRATEGY | PORTFOLIO | MARKET_DATA | APPROVAL
+  scope      String
+  /// WEIGHT_BPS | PNL_BPS | CASH_BPS | DATA_DELAY_MINUTES | PENDING_COUNT | MISSING_PRICE_COUNT
+  metric     String
+  /// GT | GTE | LT | LTE
+  comparator String
+  /// Ngưỡng, đơn vị theo `metric` (bps, phút, hoặc số đếm)
+  threshold  BigInt
+  /// INFO | WARNING | HIGH | CRITICAL  → 🟢 🟡 🟠 🔴
+  severity   String
+
+  /// Giới hạn rule vào 1 đối tượng cụ thể (symbol, sector code, strategy code).
+  /// Null = áp cho mọi đối tượng trong scope.
+  targetRef   String?
+  portfolioId String?
+
+  isActive    Boolean @default(true)
+  description String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  portfolio Portfolio?  @relation(fields: [portfolioId], references: [id])
+  createdBy User?       @relation(fields: [createdById], references: [id])
+  alerts    RiskAlert[]
+
+  @@index([scope])
+  @@index([isActive])
+  @@map("risk_rules")
+}
+
+model RiskAlert {
+  id          String  @id @default(cuid())
+  ruleId      String
+  portfolioId String?
+
+  /// ĐỐI TƯỢNG bị cảnh báo — symbol, mã ngành, mã chiến lược, hoặc null cho
+  /// cảnh báo cấp danh mục / cấp hệ thống.
+  ///
+  /// Đây là KHOÁ CHỐNG TRÙNG. Một rule "mã vượt 10%" có thể bắn cho nhiều mã
+  /// cùng lúc, nên (ruleId) một mình không đủ để biết "cảnh báo này đã tồn tại
+  /// chưa". Không có cột này thì mỗi lượt quét lại sinh thêm một bản ghi cho
+  /// cùng một sự việc, và danh sách cảnh báo thành vô dụng chỉ sau một ngày.
+  targetRef String?
+
+  severity    String
+  title       String
+  message     String
+  /// JSON text: số đo, đối tượng, ảnh chụp bối cảnh lúc bắn cảnh báo
+  contextJson String?
+
+  measuredValue  BigInt?
+  thresholdValue BigInt?
+
+  /// OPEN | ACKNOWLEDGED | RESOLVED
+  status           String    @default("OPEN")
+  triggeredAt      DateTime  @default(now())
+  acknowledgedById String?
+  acknowledgedAt   DateTime?
+  resolvedAt       DateTime?
+
+  rule           RiskRule   @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  portfolio      Portfolio? @relation(fields: [portfolioId], references: [id])
+  acknowledgedBy User?      @relation(fields: [acknowledgedById], references: [id])
+
+  @@index([status, triggeredAt])
+  @@index([ruleId])
+  @@index([ruleId, targetRef, status])
+  @@map("risk_alerts")
+}
+
+/// Một lượt quét của Risk Engine (§19) — Phase 09.
+///
+/// VÌ SAO CẦN BẢNG NÀY: không có nó thì không trả lời được câu hỏi đầu tiên mà
+/// bất kỳ ai cũng hỏi khi thấy danh sách cảnh báo trống — "engine có chạy không,
+/// hay nó chết rồi?". Một cảnh báo không xuất hiện có hai nguyên nhân hoàn toàn
+/// khác nhau: không có gì vượt ngưỡng, hoặc không ai đo cả.
+///
+/// Bảng này cũng là nguồn cho cơ chế điều tiết: quét lười khi mở trang chỉ chạy
+/// nếu lượt quét gần nhất đã cũ, nên mở trang mười lần không gọi engine mười lần.
+model RiskScanRun {
+  id String @id @default(cuid())
+
+  /// SCHEDULE | MANUAL | LAZY — ai hoặc cái gì đã khởi động lượt quét này
+  trigger String
+  /// RUNNING | SUCCESS | FAILED
+  status  String @default("RUNNING")
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  durationMs Int?
+
+  rulesEvaluated Int @default(0)
+  alertsOpened   Int @default(0)
+  alertsUpdated  Int @default(0)
+  alertsResolved Int @default(0)
+
+  errorMessage String?
+
+  triggeredById String?
+  triggeredBy   User?   @relation(fields: [triggeredById], references: [id])
+
+  @@index([startedAt])
+  @@index([status])
+  @@map("risk_scan_runs")
+}
+
+// ===========================================================================
+//  KHỐI 9 — APPROVAL (§21 menu Approvals)
+// ===========================================================================
+
+model ApprovalRequest {
+  id String @id @default(cuid())
+
+  /// TRADE | USER | CAPITAL_FLOW | PORTFOLIO | RISK_RULE | SETTING
+  entityType String
+  entityId   String
+  /// CREATE | UPDATE | DELETE | CANCEL
+  action     String
+
+  /// JSON text: nội dung đề nghị (dùng khi bản ghi chưa được tạo)
+  payloadJson String?
+
+  requestedById String
+  requestedAt   DateTime @default(now())
+  reason        String?
+
+  /// PENDING | APPROVED | REJECTED | CANCELLED
+  status      String    @default("PENDING")
+  decidedById String?
+  decidedAt   DateTime?
+  comment     String?
+
+  requestedBy User  @relation("ApprovalRequestedBy", fields: [requestedById], references: [id])
+  decidedBy   User? @relation("ApprovalDecidedBy", fields: [decidedById], references: [id])
+
+  @@index([status, requestedAt])
+  @@index([entityType, entityId])
+  @@map("approval_requests")
+}
+
+// ===========================================================================
+//  KHỐI 10 — AUDIT LOG (§20) — BẤT BIẾN, CHỈ APPEND
+// ===========================================================================
+
+/// "Không được phép sửa mất dấu vết."
+/// Bảng này không có updatedAt và không bao giờ được UPDATE/DELETE.
+/// Trên Postgres sẽ khoá bằng REVOKE UPDATE, DELETE (xem docs/POSTGRES-MIGRATION.md).
+model AuditLog {
+  id         String   @id @default(cuid())
+  occurredAt DateTime @default(now())
+
+  /// WHO — lưu kèm bản chụp email/tên/role để log vẫn đọc được nếu user bị xoá
+  actorUserId String?
+  actorEmail  String?
+  actorName   String?
+  actorRole   String?
+
+  /// WHAT — CREATE | UPDATE | DELETE | APPROVE | REJECT | CANCEL | LOGIN |
+  ///        LOGOUT | LOGIN_FAILED | EXPORT | PERMISSION_CHANGE | SYNC
+  action      String
+  entityType  String
+  entityId    String?
+  /// Nhãn dễ đọc, ví dụ "BUY MBB 10,000 @ 25,300"
+  entityLabel String?
+
+  /// BEFORE / AFTER — JSON text
+  beforeJson        String?
+  afterJson         String?
+  /// JSON array tên các field đã đổi, ví dụ ["quantity","price"]
+  changedFieldsJson String?
+
+  ipAddress String?
+  userAgent String?
+  requestId String?
+  note      String?
+
+  actor User? @relation(fields: [actorUserId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([occurredAt])
+  @@index([actorUserId])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+// ===========================================================================
+//  KHỐI 11 — CẤU HÌNH HỆ THỐNG (§21 menu Settings)
+// ===========================================================================
+
+model SystemSetting {
+  id        String @id @default(cuid())
+  key       String @unique
+  value     String
+  /// STRING | INT | BIGINT | BOOL | JSON
+  valueType String @default("STRING")
+  /// Nhóm hiển thị trên UI: TRADING | MARKET_DATA | RISK | GENERAL
+  group     String @default("GENERAL")
+
+  name        String
+  nameVi      String
+  description String?
+  isSecret    Boolean @default(false)
+  isEditable  Boolean @default(true)
+
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  updatedBy User? @relation(fields: [updatedById], references: [id])
+
+  @@index([group])
+  @@map("system_settings")
+}
