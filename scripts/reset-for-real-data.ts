@@ -202,7 +202,7 @@ async function main(): Promise<void> {
       where: { id: admin.id },
       data: {
         passwordHash: await bcrypt.hash(matKhau, 12),
-        mustChangePassword: true,
+        mustChangePassword: false,
         status: USER_STATUS.ACTIVE,
         teamId: null,
         departmentId: null,
@@ -240,7 +240,7 @@ async function main(): Promise<void> {
     sau['tài khoản chứng khoán'] === 0 &&
     sau['người dùng'] === 1 &&
     conLai[0]?.email === EMAIL_ADMIN &&
-    conLai[0]?.mustChangePassword === true &&
+    conLai[0]?.mustChangePassword === false &&
     sau['lịch sử giá (giữ)'] === giu['lịch sử giá'] &&
     sau['mã chứng khoán (giữ)'] === giu['mã chứng khoán'];
 
