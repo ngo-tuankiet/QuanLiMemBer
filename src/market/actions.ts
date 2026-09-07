@@ -18,7 +18,7 @@ import { prisma } from '@/lib/prisma';
 import { writeAudit } from '@/lib/audit';
 import { requirePermission, requestMeta } from '@/auth/guards';
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { accessSync, constants } from 'node:fs';
 import path from 'node:path';
 import {
   AUDIT_ACTION,
@@ -262,6 +262,15 @@ export async function setManualQuoteAction(
  */
 const SYNC_TIMEOUT_SECONDS = Number(process.env.MARKET_DATA_SYNC_TIMEOUT ?? '180') || 180;
 
+function fileExists(filePath: string): boolean {
+  try {
+    accessSync(filePath, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Đường dẫn tới interpreter của venv và thư mục service (hỗ trợ cả Windows và Linux). */
 function duongDanService(): { python: string; cwd: string } {
   const cwd = path.join(process.cwd(), 'services', 'market-data');
@@ -269,8 +278,8 @@ function duongDanService(): { python: string; cwd: string } {
   const posixPython = path.join(cwd, '.venv', 'bin', 'python');
 
   const python = process.platform === 'win32'
-    ? (existsSync(winPython) ? winPython : posixPython)
-    : (existsSync(posixPython) ? posixPython : winPython);
+    ? (fileExists(winPython) ? winPython : posixPython)
+    : (fileExists(posixPython) ? posixPython : winPython);
 
   return {
     python,
@@ -377,7 +386,7 @@ export async function syncMarketDataAction(): Promise<ActionResult> {
 
   const { python, cwd } = duongDanService();
 
-  if (!existsSync(python)) {
+  if (!fileExists(python)) {
     const isWin = process.platform === 'win32';
     const hd = isWin
       ? 'python -m venv .venv rồi .venv\\Scripts\\python.exe -m pip install -r requirements.txt'
