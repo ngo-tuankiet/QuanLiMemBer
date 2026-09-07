@@ -34,15 +34,6 @@ export default function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Đã có cookie mà vào trang đăng nhập/đăng ký → về dashboard.
-  // Nếu cookie thực ra đã hết hạn, guards ở /dashboard sẽ đẩy ngược lại /login.
-  if (hasSessionCookie && isPublic) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
-    url.search = '';
-    return NextResponse.redirect(url);
-  }
-
   return NextResponse.next();
 }
 

@@ -1,9 +1,12 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { getTheme } from '@/components/theme';
 import { LoginForm } from './LoginForm';
 import { BRAND_NAME_UPPER, BRAND_TAGLINE } from '@/lib/brand';
+import { readSession, SESSION_COOKIE } from '@/auth/session';
 
 export const metadata: Metadata = { title: 'Đăng nhập' };
 
@@ -12,6 +15,16 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ registered?: string; passwordChanged?: string; next?: string }>;
 }) {
+  const session = await readSession();
+  if (session) {
+    redirect('/dashboard');
+  } else {
+    const store = await cookies();
+    if (store.has(SESSION_COOKIE)) {
+      store.delete(SESSION_COOKIE);
+    }
+  }
+
   const params = await searchParams;
 
   return (
