@@ -26,6 +26,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 
+process.env.TZ = process.env.TZ ?? 'Asia/Ho_Chi_Minh';
+
 const DIST_DIR = '.next-build';
 const buildId = path.join(DIST_DIR, 'BUILD_ID');
 
@@ -80,7 +82,7 @@ if (!existsSync(nextBin)) {
 
 const result = spawnSync(process.execPath, [nextBin, 'start', ...process.argv.slice(2)], {
   stdio: 'inherit',
-  env: { ...process.env, NEXT_DIST_DIR: DIST_DIR },
+  env: { ...process.env, NEXT_DIST_DIR: DIST_DIR, TZ: process.env.TZ ?? 'Asia/Ho_Chi_Minh' },
 });
 
 if (result.error) {

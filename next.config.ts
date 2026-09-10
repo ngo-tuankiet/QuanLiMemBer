@@ -1,5 +1,7 @@
 import type { NextConfig } from 'next';
 
+process.env.TZ = process.env.TZ ?? 'Asia/Ho_Chi_Minh';
+
 const nextConfig: NextConfig = {
   /*
    * Build production ghi ra thư mục RIÊNG, không dùng chung `.next` với dev server.

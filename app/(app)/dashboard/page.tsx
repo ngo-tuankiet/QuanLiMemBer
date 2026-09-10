@@ -1332,6 +1332,7 @@ export default async function DashboardPage({
                   <li key={t.id} className="flex items-baseline gap-2 text-tiny">
                     <time className="tabular w-9 shrink-0 text-ink-500">
                       {t.executedAt.toLocaleTimeString('vi-VN', {
+                        timeZone: 'Asia/Ho_Chi_Minh',
                         hour: '2-digit',
                         minute: '2-digit',
                       })}
@@ -1433,6 +1434,7 @@ export default async function DashboardPage({
                       <tr key={t.id}>
                         <td className="tabular py-2 text-slate-muted">
                           {t.executedAt.toLocaleString('vi-VN', {
+                            timeZone: 'Asia/Ho_Chi_Minh',
                             hour: '2-digit',
                             minute: '2-digit',
                             day: '2-digit',

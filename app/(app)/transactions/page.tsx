@@ -276,6 +276,7 @@ export default async function TransactionsPage({
 
                       <td className="tabular px-4 py-2.5 text-xs text-slate-muted">
                         {t.executedAt.toLocaleString('vi-VN', {
+                          timeZone: 'Asia/Ho_Chi_Minh',
                           day: '2-digit',
                           month: '2-digit',
                           year: '2-digit',

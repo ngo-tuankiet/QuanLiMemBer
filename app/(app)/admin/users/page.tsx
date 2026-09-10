@@ -120,7 +120,7 @@ export default async function AdminUsersPage({
                     </p>
                   </div>
                   <p className="tabular text-xs text-slate-muted">
-                    đăng ký {u.createdAt.toLocaleString('vi-VN')}
+                    đăng ký {u.createdAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}
                   </p>
                 </div>
 

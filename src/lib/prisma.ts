@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
+process.env.TZ = process.env.TZ ?? 'Asia/Ho_Chi_Minh';
+
 /**
  * Prisma client dùng chung.
  *

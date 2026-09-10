@@ -133,7 +133,7 @@ export default async function MarketDataPage() {
           <p className="text-xs text-slate-muted">{t.page.lastUpdated}</p>
           <p className="tabular mt-1.5 text-sm font-medium text-strong">
             {status.lastSuccessAt
-              ? status.lastSuccessAt.toLocaleTimeString('vi-VN')
+              ? status.lastSuccessAt.toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })
               : '—'}
           </p>
           <p className="mt-1 text-tiny text-ink-500">
@@ -153,13 +153,13 @@ export default async function MarketDataPage() {
           <p className="text-xs text-slate-muted">Phiên giao dịch</p>
           <p className="tabular mt-1.5 text-sm font-medium text-strong">
             {status.quoteTradingDate
-              ? status.quoteTradingDate.toLocaleDateString('vi-VN')
+              ? status.quoteTradingDate.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })
               : '—'}
           </p>
           <p className="mt-1 text-tiny text-ink-500">
             {status.sessionsBehind === 0
               ? `phiên gần nhất đã đóng · đang mới nhất`
-              : `chậm ${status.sessionsBehind} phiên so với ${status.expectedSession.toLocaleDateString('vi-VN')}`}
+              : `chậm ${status.sessionsBehind} phiên so với ${status.expectedSession.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}`}
           </p>
         </Card>
 
@@ -298,6 +298,7 @@ export default async function MarketDataPage() {
                       </td>
                       <td className="tabular px-4 py-2 text-right text-xs text-slate-muted">
                         {q.fetchedAt.toLocaleString('vi-VN', {
+                          timeZone: 'Asia/Ho_Chi_Minh',
                           day: '2-digit',
                           month: '2-digit',
                           hour: '2-digit',
@@ -345,6 +346,7 @@ export default async function MarketDataPage() {
                     </span>
                     <span className="tabular text-tiny text-slate-muted">
                       {sync.startedAt.toLocaleString('vi-VN', {
+                        timeZone: 'Asia/Ho_Chi_Minh',
                         day: '2-digit',
                         month: '2-digit',
                         hour: '2-digit',

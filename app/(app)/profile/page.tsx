@@ -85,7 +85,11 @@ export default async function ProfilePage() {
             />
             <Row
               label="Đăng nhập cuối"
-              value={record.lastLoginAt ? record.lastLoginAt.toLocaleString('vi-VN') : 'chưa từng'}
+              value={
+                record.lastLoginAt
+                  ? record.lastLoginAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })
+                  : 'chưa từng'
+              }
             />
           </dl>
 
@@ -123,6 +127,7 @@ export default async function ProfilePage() {
                   </span>
                   <span className="tabular text-slate-muted">
                     {s.lastSeenAt.toLocaleString('vi-VN', {
+                      timeZone: 'Asia/Ho_Chi_Minh',
                       day: '2-digit',
                       month: '2-digit',
                       hour: '2-digit',

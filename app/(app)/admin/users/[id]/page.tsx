@@ -186,7 +186,7 @@ export default async function UserDetailPage({
               />
               <Row
                 label="Đăng nhập cuối"
-                value={user.lastLoginAt ? user.lastLoginAt.toLocaleString('vi-VN') : 'chưa từng'}
+                value={user.lastLoginAt ? user.lastLoginAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : 'chưa từng'}
               />
               <Row
                 label="Buộc đổi mật khẩu"
@@ -233,6 +233,7 @@ export default async function UserDetailPage({
                     <div className="flex items-baseline gap-2">
                       <span className="tabular shrink-0 text-slate-muted">
                         {log.occurredAt.toLocaleString('vi-VN', {
+                          timeZone: 'Asia/Ho_Chi_Minh',
                           day: '2-digit',
                           month: '2-digit',
                           hour: '2-digit',

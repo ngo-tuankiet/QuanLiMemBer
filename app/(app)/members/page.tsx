@@ -101,6 +101,7 @@ export default async function MembersPage() {
                     <Td className="tabular text-right text-xs text-slate-muted">
                       {u.lastLoginAt
                         ? u.lastLoginAt.toLocaleString('vi-VN', {
+                            timeZone: 'Asia/Ho_Chi_Minh',
                             day: '2-digit',
                             month: '2-digit',
                             year: 'numeric',

@@ -223,6 +223,7 @@ export default async function AuditPage({
                     {/* WHEN */}
                     <time className="tabular shrink-0 text-xs text-slate-muted">
                       {log.occurredAt.toLocaleString('vi-VN', {
+                        timeZone: 'Asia/Ho_Chi_Minh',
                         day: '2-digit',
                         month: '2-digit',
                         year: '2-digit',

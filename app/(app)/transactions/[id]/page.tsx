@@ -196,7 +196,7 @@ export default async function TradeDetailPage({
                 </Row>
                 <Row label="Thời điểm khớp">
                   <span className="tabular text-xs text-slate-soft">
-                    {trade.executedAt.toLocaleString('vi-VN')}
+                    {trade.executedAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}
                   </span>
                 </Row>
               </dl>
@@ -340,7 +340,7 @@ export default async function TradeDetailPage({
                     <li key={log.id} className="px-5 py-3">
                       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                         <time className="tabular text-xs text-slate-muted">
-                          {log.occurredAt.toLocaleString('vi-VN')}
+                          {log.occurredAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}
                         </time>
                         <span className="rounded bg-ink-800 px-1.5 py-px font-mono text-micro text-slate-soft">
                           {log.action}
@@ -466,7 +466,9 @@ export default async function TradeDetailPage({
               ) : null}
               {trade.approvedAt ? (
                 <Row label="Duyệt lúc">
-                  <span className="tabular">{trade.approvedAt.toLocaleString('vi-VN')}</span>
+                  <span className="tabular">
+                    {trade.approvedAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}
+                  </span>
                 </Row>
               ) : null}
               {trade.cancelledBy ? (
@@ -476,7 +478,9 @@ export default async function TradeDetailPage({
                 <span className="tabular">v{trade.version}</span>
               </Row>
               <Row label="Tạo lúc">
-                <span className="tabular">{trade.createdAt.toLocaleString('vi-VN')}</span>
+                <span className="tabular">
+                  {trade.createdAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}
+                </span>
               </Row>
             </dl>
           </Card>
@@ -503,6 +507,7 @@ export default async function TradeDetailPage({
                       </span>
                       <span className="tabular text-slate-muted">
                         {a.requestedAt.toLocaleString('vi-VN', {
+                          timeZone: 'Asia/Ho_Chi_Minh',
                           day: '2-digit',
                           month: '2-digit',
                           hour: '2-digit',

@@ -134,3 +134,42 @@ export function inTradingSession(
   const gio = ict.getUTCHours();
   return gio >= startHour && gio < closeHour;
 }
+
+/** Múi giờ chuẩn Việt Nam (ICT, UTC+7) dùng xuyên suốt hệ thống. */
+export const VN_TIMEZONE = 'Asia/Ho_Chi_Minh';
+
+/** Định dạng giờ theo múi giờ Việt Nam (ví dụ: 16:49:56) */
+export function formatTimeVN(
+  instant: Date | null | undefined,
+  options?: Intl.DateTimeFormatOptions,
+): string {
+  if (!instant) return '—';
+  return instant.toLocaleTimeString('vi-VN', {
+    timeZone: VN_TIMEZONE,
+    ...options,
+  });
+}
+
+/** Định dạng ngày theo múi giờ Việt Nam (ví dụ: 09/09/2026) */
+export function formatDateVN(
+  instant: Date | null | undefined,
+  options?: Intl.DateTimeFormatOptions,
+): string {
+  if (!instant) return '—';
+  return instant.toLocaleDateString('vi-VN', {
+    timeZone: VN_TIMEZONE,
+    ...options,
+  });
+}
+
+/** Định dạng ngày và giờ theo múi giờ Việt Nam */
+export function formatDateTimeVN(
+  instant: Date | null | undefined,
+  options?: Intl.DateTimeFormatOptions,
+): string {
+  if (!instant) return '—';
+  return instant.toLocaleString('vi-VN', {
+    timeZone: VN_TIMEZONE,
+    ...options,
+  });
+}

@@ -14,6 +14,8 @@
 
 import { spawnSync } from 'node:child_process';
 
+process.env.TZ = process.env.TZ ?? 'Asia/Ho_Chi_Minh';
+
 const DIST_DIR = '.next-build';
 
 /*

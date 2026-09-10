@@ -394,7 +394,7 @@ export default async function ApprovalsPage() {
                       {trade.createdBy.fullName} nhập
                       {trade.team ? ` · ${trade.team.nameVi}` : ''} ·{' '}
                       <span className="tabular">
-                        {trade.executedAt.toLocaleString('vi-VN')}
+                        {trade.executedAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}
                       </span>
                     </p>
 
@@ -475,6 +475,7 @@ export default async function ApprovalsPage() {
 
                     <span className="tabular text-xs text-ink-500">
                       {a.decidedAt?.toLocaleString('vi-VN', {
+                        timeZone: 'Asia/Ho_Chi_Minh',
                         day: '2-digit',
                         month: '2-digit',
                         hour: '2-digit',

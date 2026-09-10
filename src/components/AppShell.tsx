@@ -374,7 +374,7 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
                 className="hidden items-center gap-2 text-xs transition hover:opacity-80 sm:flex"
                 title={
                   marketData.lastSuccessAt
-                    ? `Cập nhật lúc ${marketData.lastSuccessAt.toLocaleString('vi-VN')} · nguồn ${marketData.source}` +
+                    ? `Cập nhật lúc ${marketData.lastSuccessAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · nguồn ${marketData.source}` +
                       (marketData.duringSession
                         ? ` · đang trong phiên, ngưỡng ${marketData.staleAfterMinutes} phút`
                         : ` · ngoài phiên, so theo phiên giao dịch gần nhất`)
@@ -410,7 +410,7 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
                     ? 'Market Data · chưa kết nối'
                     : marketData.duringSession
                       ? marketData.connected
-                        ? `Market Data · ${marketData.lastSuccessAt.toLocaleTimeString('vi-VN')}`
+                        ? `Market Data · ${marketData.lastSuccessAt.toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}`
                         : `Market Data trễ ${marketData.ageMinutes} phút`
                       : marketData.connected
                         ? t.nav.priceSession(phienNgan(marketData.quoteTradingDate))
