@@ -33,6 +33,7 @@ import {
   TRADE_STATUS,
   TRANSACTION_TYPE,
   CAPITAL_FLOW_SIGN,
+  CAPITAL_FLOW_TYPE,
   CAPITAL_FLOW_STATUS,
   CAPITAL_FLOW_AFFECTS_CONTRIBUTED,
   DEFAULT_BENCHMARK,
@@ -123,6 +124,26 @@ export interface PositionView {
 
   /** Tiền thu về của phần bán không khớp ở trên. Có tiền nhưng chưa biết lãi hay lỗ. */
   unmatchedSellProceeds: bigint;
+
+  /**
+   * CỔ TỨC TIỀN MẶT đã nhận từ mã này, trong phạm vi đang lọc.
+   *
+   * ĐỂ RIÊNG, KHÔNG CỘNG VÀO `unrealizedPnl` hay `realizedPnl`. Hai nguồn lợi nhuận
+   * khác hẳn nhau: lãi/lỗ giá là chênh lệch chưa/đã chốt trên giá vốn, còn cổ tức là
+   * tiền doanh nghiệp đã trả và không bao giờ mất đi. Trộn vào thì cột `returnBps`
+   * không còn là "giá đã đi bao nhiêu so với giá vốn" — đúng con số người ta nhìn
+   * để quyết định mua thêm hay cắt lỗ.
+   *
+   * CHỈ CỘNG CỔ TỨC BẰNG TIỀN. Cổ tức bằng cổ phiếu đã nằm sẵn trong `quantity` (nó
+   * được ghi như một lệnh mua giá 0), cộng thêm ở đây là tính hai lần.
+   */
+  dividendCash: bigint;
+
+  /** Lãi/lỗ giá cộng cổ tức đã nhận — tổng lợi ích của việc nắm mã này. */
+  totalReturn: bigint;
+  /** `totalReturn` trên giá vốn. Khác `returnBps` đúng bằng phần cổ tức. */
+  totalReturnBps: number;
+
   returnBps: number;
   weightBps: number;
 }
@@ -312,6 +333,49 @@ function tradeWhere(filter: EngineFilter) {
  * hỏi "bao nhiêu phần của vị thế này thuộc chiến lược Value".
  */
 export async function computePositions(filter: EngineFilter): Promise<PositionView[]> {
+  /*
+   * CỔ TỨC TIỀN MẶT NẠP RIÊNG, không đi qua `tradeWhere`.
+   *
+   * Nó nằm ở `capital_flows` chứ không ở `trades`, và bộ lọc của nó khác:
+   *
+   *   danh mục   áp được — cột `portfolioId` có ở cả hai bảng.
+   *   nhóm       KHÔNG áp: cổ tức về danh mục chứ không về nhóm nào (xem chú thích
+   *              cột `capital_flows.teamId`). Lọc theo nhóm thì cột cổ tức trống
+   *              chứ không sai — thà không có số còn hơn gán bừa cho một nhóm.
+   *   chiến lược KHÔNG áp: `capital_flows` không nối với `trade_strategies`.
+   *   khoảng     áp theo `occurredAt`, cùng mốc với lệnh.
+   *
+   * Bỏ hẳn truy vấn khi đang lọc theo nhóm hoặc chiến lược, thay vì trả một con số
+   * không đúng phạm vi người dùng đang xem.
+   */
+  const loTheoPhamVi =
+    filter.teamId === undefined && filter.strategyId === undefined;
+
+  const coTucTheoMa = new Map<string, bigint>();
+  if (loTheoPhamVi) {
+    const dong = await prisma.capitalFlow.groupBy({
+      by: ['stockId'],
+      where: {
+        ...(filter.portfolioId ? { portfolioId: filter.portfolioId } : {}),
+        flowType: CAPITAL_FLOW_TYPE.DIVIDEND,
+        status: CAPITAL_FLOW_STATUS.CONFIRMED,
+        stockId: { not: null },
+        ...(filter.from || filter.to
+          ? {
+              occurredAt: {
+                ...(filter.from ? { gte: filter.from } : {}),
+                ...(filter.to ? { lte: filter.to } : {}),
+              },
+            }
+          : {}),
+      },
+      _sum: { amount: true },
+    });
+    for (const d of dong) {
+      if (d.stockId) coTucTheoMa.set(d.stockId, d._sum.amount ?? 0n);
+    }
+  }
+
   const trades = await prisma.trade.findMany({
     where: tradeWhere(filter),
     orderBy: [{ executedAt: 'asc' }, { createdAt: 'asc' }],
@@ -371,6 +435,9 @@ export async function computePositions(filter: EngineFilter): Promise<PositionVi
         realizedPnl: 0n,
         unmatchedSellQuantity: 0,
         unmatchedSellProceeds: 0n,
+        dividendCash: 0n,
+        totalReturn: 0n,
+        totalReturnBps: 0,
         unmatchedSellMicro: 0n,
         returnBps: 0,
         weightBps: 0,
@@ -448,6 +515,10 @@ export async function computePositions(filter: EngineFilter): Promise<PositionVi
     pos.marketValue = divRound(pos.quantityMicro * pos.currentPrice, MICRO);
     pos.unrealizedPnl = pos.marketValue - pos.totalCost;
     pos.returnBps = ratioToBps(pos.unrealizedPnl, pos.totalCost);
+
+    pos.dividendCash = coTucTheoMa.get(pos.stockId) ?? 0n;
+    pos.totalReturn = pos.unrealizedPnl + pos.realizedPnl + pos.dividendCash;
+    pos.totalReturnBps = ratioToBps(pos.totalReturn, pos.totalCost);
     const { quantityMicro: _drop, unmatchedSellMicro: _drop2, ...view } = pos;
     positions.push(view);
   }
@@ -1903,6 +1974,26 @@ export interface AccountBalance {
    */
   available: bigint;
 
+  /**
+   * GIÁ TRỊ VỊ THẾ đang nằm ở tài khoản này, theo giá hiện tại.
+   *
+   * Cổ phiếu không nằm ở "danh mục" hay ở "một người" — nó nằm ở MỘT TÀI KHOẢN cụ
+   * thể (xem `computeStrategyHoldings`). Nên "tài khoản này đang đáng bao nhiêu"
+   * phải là `positionValue + available`, và hai phần đó là hai thứ khác nhau: một
+   * phần biến động theo thị trường, một phần thì không.
+   *
+   * MÃ THIẾU GIÁ ĐÓNG GÓP 0, không bịa giá — cùng quy tắc với `computePositions`.
+   * `symbolsMissingPrice` nói ra chuyện đó để nơi hiển thị không im lặng.
+   *
+   * Vị thế ÂM (bán quá số giữ — một lỗi dữ liệu) vẫn được TRỪ vào đây thay vì bỏ
+   * qua: bỏ qua thì con số trông lành lặn trong khi dữ liệu đang sai.
+   */
+  positionValue: bigint;
+  /** Mã đang giữ ở tài khoản này (khối lượng > 0). */
+  heldSymbols: string[];
+  /** Mã đang giữ nhưng `market_quotes` chưa có giá — phần giá trị bị thiếu. */
+  symbolsMissingPrice: string[];
+
   tradeCount: number;
 }
 
@@ -1937,7 +2028,14 @@ export async function computeAccountBalances(
       },
       trades: {
         where: { portfolioId, status: COUNTED_TRADE_STATUS },
-        select: { transactionType: true, quantity: true, price: true, fees: true, tax: true },
+        select: {
+          transactionType: true,
+          quantity: true,
+          price: true,
+          fees: true,
+          tax: true,
+          stock: { select: { symbol: true, quote: { select: { price: true } } } },
+        },
       },
     },
   });
@@ -1955,6 +2053,36 @@ export async function computeAccountBalances(
 
     let spentOnBuys = 0n;
     let receivedFromSells = 0n;
+
+    /*
+     * Khối lượng còn lại theo từng mã, gộp ngay trong vòng lặp đang có thay vì gọi
+     * `computeStrategyHoldings` cho từng tài khoản — cách kia là N truy vấn cho N
+     * tài khoản, và cùng một phép cộng.
+     */
+    const conLai = new Map<string, { qty: number; gia: bigint | null }>();
+
+    for (const t of a.trades) {
+      const ma = t.stock.symbol;
+      const cu = conLai.get(ma) ?? { qty: 0, gia: t.stock.quote?.price ?? null };
+      cu.qty += t.transactionType === TRANSACTION_TYPE.BUY ? t.quantity : -t.quantity;
+      conLai.set(ma, cu);
+    }
+
+    let positionValue = 0n;
+    const heldSymbols: string[] = [];
+    const symbolsMissingPrice: string[] = [];
+    for (const [ma, v] of conLai) {
+      if (v.qty === 0) continue;
+      if (v.qty > 0) heldSymbols.push(ma);
+      if (v.gia === null) {
+        if (v.qty > 0) symbolsMissingPrice.push(ma);
+        continue;
+      }
+      positionValue += BigInt(v.qty) * v.gia;
+    }
+    heldSymbols.sort();
+    symbolsMissingPrice.sort();
+
     for (const t of a.trades) {
       const net = netAmount(
         t.transactionType === TRANSACTION_TYPE.BUY ? 'BUY' : 'SELL',
@@ -1978,6 +2106,9 @@ export async function computeAccountBalances(
       spentOnBuys,
       receivedFromSells,
       available: granted - spentOnBuys + receivedFromSells,
+      positionValue,
+      heldSymbols,
+      symbolsMissingPrice,
       tradeCount: a.trades.length,
     };
   });

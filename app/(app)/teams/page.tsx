@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { Card, EmptyState, PageHeader, RoleBadge } from '@/components/ui';
 import { Change, MoneyCompact, Weight } from '@/components/money';
@@ -22,7 +23,10 @@ import {
 import { ratioToBps } from '@/lib/money';
 import { PORTFOLIO_STATUS } from '@/lib/enums';
 
-export const metadata: Metadata = { title: 'Teams' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.teams };
+}
 
 /**
  * TEAMS — mỗi nhóm là một DASHBOARD THU NHỎ (§2 × §9 × §15 × §16).
@@ -79,6 +83,7 @@ export const metadata: Metadata = { title: 'Teams' };
  */
 export default async function TeamsPage() {
   const user = await requirePagePermission('team.view');
+  const { t } = await getDict();
 
   const scope = dataScope(user.permissions, 'position');
   const seeAllTeams = scope === 'ALL';
@@ -264,7 +269,7 @@ export default async function TeamsPage() {
         họ sẽ đi báo lỗi "trang Teams mất mấy nhóm".
       */}
       <PageHeader
-        title="Teams"
+        title={t.nav.teams}
         subtitle={
           seeAllTeams
             ? `${teamRows.length} nhóm · ${teamRows.reduce((s, t) => s + t.members.length, 0)} người${

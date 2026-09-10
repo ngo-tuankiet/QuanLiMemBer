@@ -1,10 +1,14 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { Card, EmptyState, PageHeader, RoleBadge, StatusBadge } from '@/components/ui';
 
-export const metadata: Metadata = { title: 'Members' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.members };
+}
 
 /**
  * Danh sách thành viên (§21 menu Members).
@@ -13,6 +17,7 @@ export const metadata: Metadata = { title: 'Members' };
  */
 export default async function MembersPage() {
   const viewer = await requirePagePermission('user.view');
+  const { t } = await getDict();
 
   const users = await prisma.user.findMany({
     orderBy: [{ status: 'asc' }, { fullName: 'asc' }],
@@ -28,7 +33,7 @@ export default async function MembersPage() {
   return (
     <>
       <PageHeader
-        title="Members"
+        title={t.nav.members}
         subtitle={`${users.length} người dùng trong hệ thống`}
         actions={
           canManage ? (

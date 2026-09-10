@@ -381,6 +381,50 @@ export const strategyAllocationSchema = z.object({
 
 export type StrategyAllocationInput = z.infer<typeof strategyAllocationSchema>;
 
+/**
+ * MỘT ĐỢT CHIA CỔ TỨC trên một vị thế đang giữ.
+ *
+ * Hai phần đều KHÔNG BẮT BUỘC, nhưng phải có ít nhất một — chốt đó nằm ở action vì
+ * nó cần biết cả hai ô cùng lúc sau khi đã ép kiểu. Ở đây chỉ lo từng ô một.
+ *
+ * `cashPerShare` là tiền TRÊN MỖI CỔ PHIẾU, không phải tổng. Người dùng đọc thông
+ * báo của doanh nghiệp dưới dạng "1.000 đồng/cp", còn tổng thì phụ thuộc số cổ
+ * phiếu đang nắm — bắt họ tự nhân là mời một lỗi số học vào dữ liệu tài chính.
+ */
+export const dividendSchema = z.object({
+  portfolioId: cuid,
+  brokerAccountId: cuid,
+  stockId: cuid,
+  occurredAt: z.coerce.date(),
+  /** Tiền trên mỗi cổ phiếu. Bỏ trống = đợt này không trả tiền. */
+  cashPerShare: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v === undefined || v === '' ? undefined : v.replace(/[.,\s]/g, '')))
+    .refine((v) => v === undefined || /^\d+$/.test(v), {
+      message: 'Tiền trên mỗi cổ phiếu phải là số nguyên dương',
+    })
+    .transform((v) => (v === undefined ? undefined : BigInt(v)))
+    .refine((v) => v === undefined || v > 0n, {
+      message: 'Bỏ trống nếu đợt này không trả tiền, đừng điền 0',
+    }),
+  /** Số cổ phiếu nhận thêm. Bỏ trống = đợt này không chia cổ phiếu. */
+  shareQuantity: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v === undefined || v === '' ? undefined : v.replace(/[.,\s]/g, '')))
+    .refine((v) => v === undefined || /^\d+$/.test(v), {
+      message: 'Số cổ phiếu phải là số nguyên dương',
+    })
+    .transform((v) => (v === undefined ? undefined : Number(v)))
+    .refine((v) => v === undefined || (v > 0 && v <= 1_000_000_000), {
+      message: 'Bỏ trống nếu đợt này không chia cổ phiếu, đừng điền 0',
+    }),
+  note: z.string().trim().max(500, 'Ghi chú tối đa 500 ký tự').optional(),
+});
+
 export const tradeSchema = z
   .object({
     portfolioId: cuid,

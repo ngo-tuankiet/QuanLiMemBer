@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { Card, EmptyState, PageHeader, TradeStatusChip, TradeTypeChip } from '@/components/ui';
 import { MoneyCompact, Price, Quantity, Weight } from '@/components/money';
@@ -8,7 +9,10 @@ import { dataScope } from '@/domain/permissions';
 import { netAmount } from '@/lib/money';
 import { TRADE_STATUS, TRADE_STATUS_LABEL_VI, TRANSACTION_TYPE, type TradeStatus } from '@/lib/enums';
 
-export const metadata: Metadata = { title: 'Transactions' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.transactions };
+}
 
 const PAGE_SIZE = 30;
 
@@ -32,6 +36,7 @@ export default async function TransactionsPage({
   }>;
 }) {
   const user = await requirePagePermission('transaction.view');
+  const { t } = await getDict();
   const params = await searchParams;
 
   const scope = dataScope(user.permissions, 'transaction');
@@ -87,7 +92,7 @@ export default async function TransactionsPage({
   return (
     <>
       <PageHeader
-        title="Transactions"
+        title={t.nav.transactions}
         subtitle={
           scope === 'ALL'
             ? `${total.toLocaleString('vi-VN')} giao dịch trên toàn hệ thống`
@@ -109,13 +114,13 @@ export default async function TransactionsPage({
       <div className="mb-3 flex flex-wrap gap-1.5">
         <Chip label={`Tất cả (${total})`} href="/transactions" active={!params.type} />
         <Chip
-          label="Buy"
+          label={t.nav.buy}
           href="/transactions?type=BUY"
           active={params.type === TRANSACTION_TYPE.BUY}
           tone="up"
         />
         <Chip
-          label="Sell"
+          label={t.nav.sell}
           href="/transactions?type=SELL"
           active={params.type === TRANSACTION_TYPE.SELL}
           tone="down"
@@ -345,7 +350,7 @@ export default async function TransactionsPage({
           <span className="tabular text-xs text-slate-muted">
             Trang {page} / {totalPages}
           </span>
-          <PageLink params={params} page={page + 1} disabled={page >= totalPages} label="Sau →" />
+          <PageLink params={params} page={page + 1} disabled={page >= totalPages} label={t.page.next} />
         </nav>
       ) : null}
 

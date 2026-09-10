@@ -4,6 +4,7 @@ import { Icon } from '@/components/icons';
 import { prisma } from '@/lib/prisma';
 import { computeAccountBalances } from '@/domain/portfolio-engine';
 import { whoCanApproveWithdrawals } from '@/approvals/queue';
+import { AccountValueBars, type AccountValueRow } from '@/components/AccountValueBars';
 import { kiemDongTaiKhoan, lyDoChuaDong } from '@/accounts/close-rules';
 import { PORTFOLIO_STATUS } from '@/lib/enums';
 import {
@@ -210,6 +211,28 @@ export async function BrokerAccountsCard({
 
   const total = rows.reduce((s, a) => s + a.net, 0n);
 
+  /*
+   * DỮ LIỆU BIỂU ĐỒ lấy từ `balances`, không dựng lại từ `rows`.
+   *
+   * `rows` mang VỐN RÒNG ĐÃ NẠP (tiền đã bỏ vào), còn biểu đồ nói về GIÁ TRỊ ĐANG
+   * CÓ (vị thế theo giá thị trường + tiền mặt). Hai đại lượng khác nhau và lệch
+   * nhau đúng bằng phần lãi/lỗ — trộn vào một chỗ là cách chắc chắn để sau này ai
+   * đó đọc nhầm cái này thành cái kia.
+   */
+  const bieuDo: AccountValueRow[] = balances.map((b) => ({
+    key: b.accountId,
+    broker:
+      b.broker === BROKER.OTHER
+        ? (b.brokerOther ?? 'Khác')
+        : (BROKER_LABEL_VI[b.broker as Broker] ?? b.broker),
+    accountNo: b.accountNo,
+    positionValue: b.positionValue,
+    cash: b.available,
+    heldSymbols: b.heldSymbols,
+    symbolsMissingPrice: b.symbolsMissingPrice,
+    isActive: b.isActive,
+  }));
+
   return (
     <Card className={`p-5 ${className ?? ''}`}>
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
@@ -376,6 +399,23 @@ export async function BrokerAccountsCard({
           </table>
         </div>
       )}
+
+      {/*
+        BIỂU ĐỒ ĐẶT SAU BẢNG, không thay bảng.
+
+        Bảng trả lời "tài khoản này đã nạp bao nhiêu, lần cuối khi nào" — số liệu để
+        tra. Biểu đồ trả lời "tiền của tôi đang nằm ở đâu, bao nhiêu còn là tiền mặt"
+        — hình để nhìn. Bỏ bảng đi thì mất phần tra cứu; bỏ biểu đồ thì phải tự cộng
+        vị thế với tiền mặt trong đầu cho từng tài khoản.
+
+        Chỉ hiện khi có tài khoản: một khối chú giải trống không nói được gì.
+      */}
+      {bieuDo.length > 0 ? (
+        <div className="mt-5 border-t border-ink-800 pt-4">
+          <p className="mb-3 text-xs font-medium text-strong">Giá trị từng tài khoản</p>
+          <AccountValueBars rows={bieuDo} />
+        </div>
+      ) : null}
 
       <p className="mt-3 text-tiny text-ink-500">
         Mỗi lần nạp/rút là một dòng trong <span className="text-slate-soft">capital_flows</span> —

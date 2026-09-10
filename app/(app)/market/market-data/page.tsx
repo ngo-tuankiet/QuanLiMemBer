@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Change, Price } from '@/components/money';
@@ -7,7 +8,10 @@ import { getMarketDataStatus } from '@/domain/portfolio-engine';
 import { ManualQuoteForm } from './ManualQuoteForm';
 import { SyncPricesButton } from './SyncPricesButton';
 
-export const metadata: Metadata = { title: 'Market Data' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.marketData };
+}
 
 /**
  * Trạng thái dữ liệu thị trường (§10) — Phase 03.
@@ -21,6 +25,7 @@ export const metadata: Metadata = { title: 'Market Data' };
  */
 export default async function MarketDataPage() {
   const user = await requirePagePermission('market_data.view');
+  const { t } = await getDict();
 
   const [status, quotes, quoteTotal, manualTotal, syncs, missingCount, stocksWithoutQuote] =
     await Promise.all([
@@ -82,7 +87,7 @@ export default async function MarketDataPage() {
         và gọi nguồn ngoài là hai việc khác nhau. Quyền này hiện chỉ Admin có.
       */}
       <PageHeader
-        title="Market Data"
+        title={t.nav.marketData}
         subtitle="Nguồn giá và nhật ký đồng bộ. Frontend không bao giờ gọi VNStock trực tiếp (§23)."
         actions={canSync ? <SyncPricesButton /> : undefined}
       />
@@ -92,7 +97,7 @@ export default async function MarketDataPage() {
       {/* -------------------------------------------------------------- */}
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="p-4">
-          <p className="text-xs text-slate-muted">Market Data</p>
+          <p className="text-xs text-slate-muted">{t.nav.marketData}</p>
           <p className="mt-1.5 flex items-center gap-2 text-sm font-medium">
             <span
               className={`size-2 rounded-full ${
@@ -125,7 +130,7 @@ export default async function MarketDataPage() {
         </Card>
 
         <Card className="p-4">
-          <p className="text-xs text-slate-muted">Last Updated</p>
+          <p className="text-xs text-slate-muted">{t.page.lastUpdated}</p>
           <p className="tabular mt-1.5 text-sm font-medium text-strong">
             {status.lastSuccessAt
               ? status.lastSuccessAt.toLocaleTimeString('vi-VN')
@@ -159,7 +164,7 @@ export default async function MarketDataPage() {
         </Card>
 
         <Card className="p-4">
-          <p className="text-xs text-slate-muted">Data Status</p>
+          <p className="text-xs text-slate-muted">{t.page.dataStatus}</p>
           <p className="mt-1.5 text-sm font-medium">
             {missingCount === 0 ? (
               <span className="text-up-500">● Normal</span>
@@ -192,7 +197,7 @@ export default async function MarketDataPage() {
             {stocksWithoutQuote.length} mã đã có giao dịch nhưng chưa có giá
           </p>
           <p className="mt-1 text-xs text-slate-muted">
-            Những mã này được tính giá trị thị trường bằng 0, nên Portfolio Value và P&amp;L đang
+            Những mã này được tính giá trị thị trường bằng 0, nên {t.kpi.portfolioValue} và P&amp;L đang
             thiếu. Bấm “Cập nhật giá” ở đầu trang, hoặc nhập tay bên dưới.
           </p>
           <div className="mt-3 flex flex-wrap gap-1.5">
@@ -215,7 +220,7 @@ export default async function MarketDataPage() {
           <p className="mt-0.5 mb-4 text-xs text-slate-muted">
             Phương án dự phòng khi VNStock không có mã đó, hoặc nguồn đang lỗi. Mọi dòng
             nhập tay được ghi <span className="font-mono">source = MANUAL</span> và có bản ghi
-            Audit Log riêng, nên không bị nhầm là dữ liệu chính thức.
+            {t.nav.auditLog} riêng, nên không bị nhầm là dữ liệu chính thức.
           </p>
           <ManualQuoteForm />
         </Card>

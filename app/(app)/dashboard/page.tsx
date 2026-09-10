@@ -42,11 +42,16 @@ import {
   type TradeStatus,
 } from '@/lib/enums';
 import { countPendingForUser } from '@/approvals/queue';
+import { getDict } from '@/i18n';
+import { BRAND_TAGLINE } from '@/lib/brand';
 import { ensureRecentScan, listOpenAlerts } from '@/risk/scan';
 import { formatMeasure } from '@/domain/risk-engine';
 import { elapsedVi } from '@/lib/elapsed';
 
-export const metadata: Metadata = { title: 'Dashboard' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.dashboard };
+}
 
 /**
  * EXECUTIVE CONTROL CENTER (§11–§19).
@@ -63,16 +68,12 @@ export const metadata: Metadata = { title: 'Dashboard' };
  * trang nói lại điều đó cho NGƯỜI ĐỌC, không chỉ cho người viết code.
  */
 
-const PERIOD_LABELS: Record<PeriodCode, string> = {
-  '1W': '1 tuần',
-  '1M': '1 tháng',
-  '3M': '3 tháng',
-  '6M': '6 tháng',
-  YTD: 'Từ đầu năm',
-  ALL: 'Toàn bộ',
-};
-
-const PERIODS = Object.keys(PERIOD_LABELS) as PeriodCode[];
+/*
+ * THỨ TỰ CÁC KHOẢNG THỜI GIAN. Chữ hiển thị nằm ở từ điển (`t.period`), không nằm
+ * ở đây: bảng này là hằng số module scope, chạy một lần lúc nạp module, trong khi
+ * ngôn ngữ phụ thuộc cookie của từng request — cùng lý do với bảng MENU ở AppShell.
+ */
+const PERIODS: PeriodCode[] = ['1W', '1M', '3M', '6M', 'YTD', 'ALL'];
 
 export default async function DashboardPage({
   searchParams,
@@ -86,6 +87,9 @@ export default async function DashboardPage({
   }>;
 }) {
   const user = await requirePagePermission('dashboard.view');
+
+  /* Từ điển đọc theo TỪNG REQUEST (cookie) — xem `src/i18n/index.ts`. */
+  const { t } = await getDict();
   const params = await searchParams;
 
   const portfolioScope = dataScope(user.permissions, 'portfolio');
@@ -148,15 +152,16 @@ export default async function DashboardPage({
     return (
       <>
         <Header
-          title="Executive Control Center"
-          subtitle="Chưa có danh mục nào"
+          title={BRAND_TAGLINE}
+          subtitle={t.dash.noPortfolio}
           filters={null}
           alertCount={0}
+          alertsTitle={t.dash.openAlerts(0)}
         />
         <Card>
           <EmptyState
-            title="Chưa có danh mục nào"
-            hint="Chạy npm run db:seed để khởi tạo danh mục mặc định."
+            title={t.dash.noPortfolio}
+            hint={t.dash.noPortfolioHint}
           />
         </Card>
       </>
@@ -348,13 +353,15 @@ export default async function DashboardPage({
 
   const teamCapitalBars: RankedBar[] = [...teamRows]
     .sort((a, b) => (b.netCapital > a.netCapital ? 1 : b.netCapital < a.netCapital ? -1 : 0))
-    .map((t) => ({
-      key: t.teamId || 'unassigned',
-      label: t.nameVi,
-      value: t.netCapital,
-      bps: ratioToBps(t.netCapital, totalTeamCapital),
-      color: seriesColor(t.colorIndex),
-      trailing: <span className="tabular text-tiny text-ink-500">{t.memberCount} người</span>,
+    .map((nh) => ({
+      key: nh.teamId || 'unassigned',
+      label: nh.nameVi,
+      value: nh.netCapital,
+      bps: ratioToBps(nh.netCapital, totalTeamCapital),
+      color: seriesColor(nh.colorIndex),
+      trailing: (
+        <span className="tabular text-tiny text-ink-500">{t.dash.memberCount(nh.memberCount)}</span>
+      ),
     }));
 
   // --- Tài khoản & vốn theo IB --------------------------------------------
@@ -375,7 +382,7 @@ export default async function DashboardPage({
    * dòng "Khác" hiện tiền của mười đầu mối kèm số tài khoản của một đầu mối.
    */
   const nhanIb = (x: IbExposure): string =>
-    x.isDirect ? 'Không qua IB' : x.label;
+    x.isDirect ? t.dash.ibDirect : x.label;
 
   const ibDauBang = ibExposure.slice(0, DONUT_MAX_SEGMENTS - 1);
   const ibDuoi = ibExposure.slice(DONUT_MAX_SEGMENTS - 1);
@@ -395,7 +402,7 @@ export default async function DashboardPage({
       : [
           {
             key: '__other__',
-            label: `Khác (${ibDuoi.length} đầu mối)`,
+            label: t.dash.ibOther(ibDuoi.length),
             value: ibDuoi.reduce((v, x) => v + x.netCapital, 0n),
             bps: ibDuoi.reduce((b, x) => b + x.weightBps, 0),
             color: undefined,
@@ -419,12 +426,14 @@ export default async function DashboardPage({
 
   const teamPnlBars: DivergingBar[] = [...teamRows]
     .sort((a, b) => b.returnBps - a.returnBps)
-    .map((t) => ({
-      key: t.teamId || 'unassigned',
-      label: t.nameVi,
-      value: t.totalPnl,
-      bps: t.returnBps,
-      meta: <span className="tabular text-tiny text-ink-500">{t.tradeCount} lệnh</span>,
+    .map((nh) => ({
+      key: nh.teamId || 'unassigned',
+      label: nh.nameVi,
+      value: nh.totalPnl,
+      bps: nh.returnBps,
+      meta: (
+        <span className="tabular text-tiny text-ink-500">{t.dash.orderCount(nh.tradeCount)}</span>
+      ),
     }));
 
   /*
@@ -475,7 +484,7 @@ export default async function DashboardPage({
   const shortDate = (d: Date) =>
     d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
-  const periodLabel = PERIOD_LABELS[period].toLowerCase();
+  const periodLabel = t.period[period].toLowerCase();
 
   /*
    * KHI ĐANG LỌC, Ô THỨ NHẤT KHÔNG CỘNG TIỀN VÀO.
@@ -494,7 +503,7 @@ export default async function DashboardPage({
    */
   const scopeNote = [
     filter.teamId !== undefined
-      ? (teams.find((t) => t.id === filter.teamId)?.nameVi ?? 'nhóm đã chọn')
+      ? (teams.find((x) => x.id === filter.teamId)?.nameVi ?? t.filter.team)
       : null,
     filter.sectorId ? sectors.find((x) => x.id === filter.sectorId)?.nameVi : null,
     filter.strategyId ? strategies.find((x) => x.id === filter.strategyId)?.nameVi : null,
@@ -506,6 +515,43 @@ export default async function DashboardPage({
    * Lọc theo CHIẾN LƯỢC không đi vào chuỗi (xem `computePerformanceSeries`), nên
    * đường và mức thay đổi lúc đó là của toàn danh mục. Nói ra, không im lặng.
    */
+  /*
+   * VÌ SAO CHƯA CÓ ALPHA — BA LÝ DO KHÁC HẲN NHAU, và người đọc xử lý mỗi cái một
+   * cách khác nhau:
+   *
+   *   chưa có vị thế   không có gì để đo. Nhập lệnh xong là có.
+   *   thiếu chỉ số     chuỗi VNINDEX rỗng trong khoảng đang xem. Chạy đồng bộ.
+   *   lệch khoảng      hai vế có dữ liệu nhưng không cùng khoảng thời gian.
+   *
+   * Trước đây cả ba đều in ra "thiếu dữ liệu giá theo phiên". Câu đó SAI ở trường
+   * hợp thứ nhất — dữ liệu giá đầy đủ, chỉ là danh mục chưa mua gì — và nó chỉ người
+   * đọc đi sửa đúng thứ không hỏng.
+   */
+  const lyDoChuaCoAlpha = ((): { sub: string; hint: string } => {
+    if (series.points.length === 0) {
+      /*
+       * CHUỖI RỖNG CÓ HAI NGHĨA, và chúng dẫn tới hai việc phải làm khác hẳn nhau.
+       *
+       * Bản đầu của khối này gộp cả hai thành "chưa có vị thế nào". Đo trên dữ liệu
+       * thật thì câu đó SAI ngay: danh mục có 4.000 ACB, lịch sử giá ACB có 174
+       * phiên — nhưng dừng ở 25/08 trong khi lệnh mua ghi ngày 09/09, nên không có
+       * phiên nào TỪ NGÀY MUA TRỞ ĐI để dựng chuỗi. Người đọc câu cũ sẽ đi tìm vị
+       * thế của mình thay vì đi chạy đồng bộ giá.
+       */
+      if (open.length === 0) {
+        return { sub: t.kpi.alphaNoPositions, hint: t.kpi.alphaNoPositionsHint };
+      }
+      return { sub: t.kpi.alphaNoPriceHistory, hint: t.kpi.alphaNoPriceHistoryHint };
+    }
+    if (!perf.benchmarkFrom || !perf.benchmarkTo) {
+      return {
+        sub: t.kpi.alphaNoBenchmark(perf.benchmarkCode),
+        hint: t.kpi.alphaNoBenchmarkHint(perf.benchmarkCode),
+      };
+    }
+    return { sub: t.kpi.alphaMismatch, hint: t.kpi.alphaMismatchHint };
+  })();
+
   const seriesIgnoresStrategy = Boolean(filter.strategyId);
 
   /*
@@ -536,7 +582,7 @@ export default async function DashboardPage({
   const investedOfWholeBps = ratioToBps(summary.investedValue, whole.portfolioValue);
 
   const deltaLabel = perf.window
-    ? `từ ${shortDate(perf.window.from)} · ${perf.window.sessions} phiên`
+    ? t.kpi.fromSessions(shortDate(perf.window.from), perf.window.sessions)
     : null;
   const alphaSeries = series.points
     .filter((p) => p.benchmarkIndex !== null)
@@ -573,7 +619,7 @@ export default async function DashboardPage({
         />
         <span className="hidden sm:inline">{m.teamNameVi}</span>
         <span aria-hidden>·</span>
-        {m.tradeCount} lệnh
+        {t.dash.orderCount(m.tradeCount)}
       </span>
     ),
   }));
@@ -586,38 +632,38 @@ export default async function DashboardPage({
   const filterGroups: FilterGroup[] = [
     {
       name: 'portfolioId',
-      label: 'Danh mục',
-      allLabel: portfolios.length > 1 ? 'Tất cả' : portfolio.code,
+      label: t.filter.portfolio,
+      allLabel: portfolios.length > 1 ? t.filter.all : portfolio.code,
       options: portfolios.map((p) => ({ value: p.id, label: p.nameVi ?? p.name })),
     },
     {
       name: 'teamId',
-      label: 'Nhóm',
-      allLabel: 'Tất cả',
+      label: t.filter.team,
+      allLabel: t.filter.all,
       options: teams.map((t) => ({ value: t.id, label: t.nameVi })),
       lockedReason: seeAllTeams
         ? undefined
-        : `Bạn chỉ xem được nhóm ${user.teamNameVi ?? 'của mình'} — cần quyền position.view_all để chọn nhóm khác`,
+        : t.dash.teamLocked(user.teamNameVi ?? t.dash.noTeam),
     },
     {
       name: 'strategyId',
-      label: 'Chiến lược',
-      allLabel: 'Tất cả',
+      label: t.filter.strategy,
+      allLabel: t.filter.all,
       options: strategies.map((s) => ({ value: s.id, label: s.nameVi })),
     },
     {
       name: 'sectorId',
-      label: 'Ngành',
-      allLabel: 'Tất cả',
+      label: t.filter.sector,
+      allLabel: t.filter.all,
       options: sectors.map((s) => ({ value: s.id, label: s.nameVi })),
     },
     {
       name: 'period',
-      label: 'Thời gian',
-      allLabel: PERIOD_LABELS.YTD,
+      label: t.filter.period,
+      allLabel: t.period.YTD,
       options: PERIODS.filter((p) => p !== 'YTD').map((p) => ({
         value: p,
-        label: PERIOD_LABELS[p],
+        label: t.period[p],
       })),
     },
   ];
@@ -631,18 +677,21 @@ export default async function DashboardPage({
   return (
     <>
       <Header
-        title="Executive Control Center"
+        title={BRAND_TAGLINE}
         subtitle={[
           summary.portfolioName,
-          `${summary.positionCount} vị thế`,
+          t.dash.positionCount(summary.positionCount),
           user.roleNameVi,
-          portfolioScope === 'ALL' ? null : `phạm vi nhóm ${user.teamNameVi ?? 'chưa gán'}`,
-          activeFilters.length > 0 ? `đang lọc: ${activeFilters.join(' · ')}` : null,
+          portfolioScope === 'ALL'
+            ? null
+            : t.dash.scopeTeam(user.teamNameVi ?? t.dash.noTeam),
+          activeFilters.length > 0 ? t.dash.filtering(activeFilters.join(' · ')) : null,
         ]
           .filter(Boolean)
           .join(' · ')}
         filters={<DashboardFilters groups={filterGroups} />}
         alertCount={alertCount}
+        alertsTitle={t.dash.openAlerts(alertCount)}
       />
 
       {/* Việc cần làm — chỉ hiện khi thực sự có việc */}
@@ -651,19 +700,19 @@ export default async function DashboardPage({
           <p className="flex items-center gap-2 text-sm text-warn-500">
             <Icon name="approvals" />
             {[
-              cho && cho.trades > 0 ? `${cho.trades} giao dịch` : null,
-              cho && cho.withdrawals > 0 ? `${cho.withdrawals} yêu cầu rút vốn` : null,
-              pendingUsers > 0 ? `${pendingUsers} tài khoản` : null,
+              cho && cho.trades > 0 ? t.dash.pendingTrades(cho.trades) : null,
+              cho && cho.withdrawals > 0 ? t.dash.pendingWithdrawals(cho.withdrawals) : null,
+              pendingUsers > 0 ? t.dash.pendingUsers(pendingUsers) : null,
             ]
               .filter(Boolean)
-              .join(' và ')}{' '}
-            đang chờ duyệt
+              .join(t.dash.and)}{' '}
+            {t.dash.awaitingApproval}
           </p>
           <Link
             href={(cho?.total ?? 0) > 0 ? '/approvals' : '/admin/users?status=PENDING'}
             className="rounded-lg bg-warn-500/20 px-3 py-1.5 text-xs font-medium text-warn-500 transition hover:bg-warn-500/30"
           >
-            Xem bảng chờ
+            {t.dash.viewQueue}
           </Link>
         </Card>
       ) : null}
@@ -696,22 +745,23 @@ export default async function DashboardPage({
           tone={
             !perfInScope ? 'accent' : perf.portfolioBps >= 0 ? 'up' : 'down'
           }
-          label={narrowed ? 'Giá trị vị thế' : 'Portfolio Value'}
+          label={narrowed ? t.kpi.positionValue : t.kpi.portfolioValue}
           hint={
             (narrowed
-              ? `Chỉ giá trị thị trường của vị thế trong phạm vi đang lọc (${scopeNote}), KHÔNG cộng tiền. ${
-                  cashByTeam
-                    ? 'Tiền của nhóm nằm ở ô bên phải và là con số riêng của nhóm.'
-                    : 'Tiền nằm ở ô Available Cash và là của toàn danh mục — lọc theo ngành hay chiến lược không chia được tiền.'
-                }`
-              : 'Giá trị thị trường của vị thế cộng số dư tiền (§12). ') +
+              ? t.kpi.hintValueFiltered(scopeNote, cashByTeam)
+              : t.kpi.hintValueWhole) +
             (perfInScope && perf.window
-              ? ` Mức thay đổi dựng lại từ giá đóng cửa ${perf.window.sessions} phiên, từ ${shortDate(perf.window.from)} đến ${shortDate(perf.window.to)} — khoảng bạn chọn (${periodLabel}) có thể dài hơn phần đang có dữ liệu giá.`
+              ? t.kpi.hintWindow(
+                  perf.window.sessions,
+                  shortDate(perf.window.from),
+                  shortDate(perf.window.to),
+                  periodLabel,
+                )
               : '') +
             (seriesIgnoresStrategy
-              ? ' Không hiện mức thay đổi theo thời gian khi lọc theo chiến lược: chuỗi theo phiên cần nhân tiền theo tỷ lệ phân bổ của từng lệnh (§16) nên chưa dựng được cho một chiến lược riêng. Bỏ bộ lọc chiến lược để xem lại.'
+              ? t.kpi.hintNoStrategySeries
               : !perf.comparable
-                ? ' Chưa có đủ dữ liệu giá theo phiên để đo mức thay đổi theo thời gian.'
+                ? t.kpi.hintNoSeries
                 : '')
           }
           value={
@@ -722,8 +772,10 @@ export default async function DashboardPage({
           }
           sub={
             narrowed
-              ? `${formatBps(ratioToBps(summary.investedValue, whole.portfolioValue), false)} danh mục · chưa gồm tiền`
-              : 'vị thế + tiền'
+              ? `${t.kpi.ofPortfolio(
+                  formatBps(ratioToBps(summary.investedValue, whole.portfolioValue), false),
+                )} · ${t.kpi.notIncludingCash}`
+              : t.kpi.portfolioValueSub
           }
           chart={
             /* Đường cũng thuộc phạm vi hay không, cùng một điều kiện với delta. */
@@ -756,11 +808,11 @@ export default async function DashboardPage({
         <Kpi
           icon="pie"
           tone="accent"
-          label={narrowed ? 'Giá vốn' : 'Invested Capital'}
+          label={narrowed ? t.kpi.cost : t.kpi.investedCapital}
           hint={
             narrowed
-              ? `Số tiền đã bỏ ra cho phần vị thế đang giữ trong phạm vi đang lọc (${scopeNote}) — gồm cả phí và thuế. Ô bên trái là giá trị thị trường của cùng phần đó; hiệu của hai ô là lãi/lỗ chưa thực hiện.`
-              : 'Giá trị thị trường của các vị thế đang giữ.'
+              ? t.kpi.hintCostFiltered(scopeNote)
+              : t.kpi.hintInvestedWhole
           }
           value={
             <MoneyCompact
@@ -770,8 +822,8 @@ export default async function DashboardPage({
           }
           sub={
             narrowed
-              ? 'đã bỏ ra cho phần đang giữ'
-              : `${formatBps(investedOfWholeBps, false)} danh mục`
+              ? t.kpi.spentOnHeld
+              : t.kpi.ofPortfolio(formatBps(investedOfWholeBps, false))
           }
           chart={
             narrowed ? null : <Bar bps={investedOfWholeBps} color="var(--accent)" />
@@ -781,16 +833,19 @@ export default async function DashboardPage({
         <Kpi
           icon="wallet"
           tone="up"
-          label={cashByTeam ? 'Tiền của nhóm' : 'Available Cash'}
+          label={cashByTeam ? t.kpi.teamCash : t.kpi.availableCash}
           hint={
             !cashByTeam
-              ? 'Số dư tiền TRỪ quỹ dự phòng — không phải số dư tiền (§14).' +
+              ? t.kpi.hintCash +
                 (narrowed
-                  ? ' Lọc theo ngành hay chiến lược không đổi được con số này: vốn được cấp cho nhóm, không cấp cho ngành.'
+                  ? t.kpi.hintCashNotFiltered
                   : '')
               : teamCash.noGrant
-                ? `Nhóm này CHƯA được cấp dòng vốn riêng nào, nên chưa có "tiền của nhóm" để hiển thị. Nhóm đang dùng quỹ chung, và tới nay đã rút ròng ${formatCompactVnd_vi(-teamCash.cashBalance)} từ đó. Gắn nhóm cho dòng vốn (capital_flows.teamId) để con số này có nghĩa.`
-                : `Vốn được cấp riêng cho nhóm trừ đi phần nhóm đã dùng: cấp ${formatCompactVnd_vi(granted)}, đã dùng ròng ${formatCompactVnd_vi(teamCash.spentOnBuys - teamCash.receivedFromSells)}. KHÔNG trừ quỹ dự phòng — đó là khoản của cả danh mục, trừ cho từng nhóm là trừ bốn lần.`
+                ? t.kpi.hintTeamNoGrant(formatCompactVnd_vi(-teamCash.cashBalance))
+                : t.kpi.hintTeamCash(
+                    formatCompactVnd_vi(granted),
+                    formatCompactVnd_vi(teamCash.spentOnBuys - teamCash.receivedFromSells),
+                  )
           }
           value={
             cashByTeam && teamCash.noGrant ? (
@@ -802,14 +857,33 @@ export default async function DashboardPage({
               />
             )
           }
+          /*
+           * NÓI RA KHOẢN ĐANG BỊ GIỮ, ngay trên thẻ.
+           *
+           * "Available Cash" là số dư TRỪ quỹ dự phòng. Trước đây điều đó chỉ nằm
+           * trong `hint` sau dấu ⓘ, nên người có 600 triệu trong tài khoản mà thấy
+           * 120 triệu ở đây sẽ kết luận con số bị sai — không có gì trên thẻ nói cho
+           * họ biết 480 triệu đang được giữ lại theo cấu hình của chính họ.
+           *
+           * Chỉ hiện khi quỹ dự phòng KHÁC 0: thêm chữ "giữ 0 ₫" vào mọi thẻ là làm
+           * loãng dòng phụ ở trường hợp phổ biến nhất.
+           */
           sub={
             !cashByTeam
-              ? narrowed
-                ? `${formatBps(whole.allocation.cashBps, false)} danh mục · không theo bộ lọc`
-                : `${formatBps(whole.allocation.cashBps, false)} danh mục`
+              ? [
+                  t.kpi.ofPortfolio(formatBps(whole.allocation.cashBps, false)),
+                  narrowed ? t.kpi.notFiltered : null,
+                  whole.cash.reserveAmount > 0n
+                    ? t.kpi.holdingReserve(formatCompactVnd_vi(whole.cash.reserveAmount))
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
               : teamCash.noGrant
-                ? 'chưa cấp vốn riêng'
-                : `còn ${formatBps(ratioToBps(teamCash.availableCash, granted), false)} vốn được cấp`
+                ? t.kpi.noGrantYet
+                : t.kpi.remainingOfGrant(
+                    formatBps(ratioToBps(teamCash.availableCash, granted), false),
+                  )
           }
           chart={
             cashByTeam && teamCash.noGrant ? null : (
@@ -828,11 +902,11 @@ export default async function DashboardPage({
         <Kpi
           icon={summary.totalPnl >= 0n ? 'trendUp' : 'trendDown'}
           tone={summary.totalPnl >= 0n ? 'up' : 'down'}
-          label="Total P&L"
+          label={t.kpi.totalPnl}
           hint={
-            'Lãi/lỗ đã thực hiện cộng chưa thực hiện, tính trên giá vốn đã bỏ ra.' +
+            t.kpi.hintPnl +
             (summary.investedCost === 0n
-              ? ' Chưa giữ vị thế nào nên không có giá vốn để chia — tỷ suất là “—”, không phải 0%.'
+              ? t.kpi.hintPnlNoCost
               : '')
           }
           value={<MoneyCompact value={summary.totalPnl} signed />}
@@ -843,8 +917,8 @@ export default async function DashboardPage({
               `MemberPerformance.returnBps`. Không có giá vốn thì không có tỷ suất.
             */
             summary.investedCost === 0n
-              ? 'chưa bỏ vốn'
-              : `${formatBps(summary.totalPnlBps)} trên giá vốn`
+              ? t.kpi.noCapitalYet
+              : t.kpi.onCost(formatBps(summary.totalPnlBps))
           }
           chart={
             /* Cùng `valueSeries` với ô đầu, nên cùng điều kiện phạm vi. */
@@ -874,13 +948,15 @@ export default async function DashboardPage({
           tone={
             !perfInScope ? 'accent' : perf.alphaBps >= 0 ? 'up' : 'down'
           }
-          label={`Alpha vs ${perf.benchmarkCode}`}
+          label={t.kpi.alphaVs(perf.benchmarkCode)}
           hint={
             perfInScope
-              ? `Hơn/kém thị trường trên CÙNG khoảng ${perf.window ? shortDate(perf.window.from) + ' → ' + shortDate(perf.window.to) : ''}. Lãi 5% khi chỉ số tăng 8% là kết quả kém.`
+              ? t.kpi.hintAlpha(
+                  perf.window ? `${shortDate(perf.window.from)} → ${shortDate(perf.window.to)}` : '',
+                )
               : seriesIgnoresStrategy
-                ? 'Chưa đo được cho một chiến lược riêng: chuỗi theo phiên cần nhân tiền theo tỷ lệ phân bổ của từng lệnh (§16). Hiện Alpha của toàn danh mục ở đây sẽ bị đọc thành Alpha của chiến lược.'
-                : 'Chưa đo được: hiệu suất danh mục và mức tăng chỉ số hiện không cùng một khoảng thời gian, nên hiệu của chúng không có nghĩa.'
+                ? t.kpi.hintAlphaNoStrategy
+                : lyDoChuaCoAlpha.hint
           }
           value={
             perfInScope ? (
@@ -891,10 +967,14 @@ export default async function DashboardPage({
           }
           sub={
             perfInScope
-              ? `danh mục ${formatBps(perf.portfolioBps)} · ${perf.benchmarkCode} ${formatBps(perf.benchmarkBps)}`
+              ? t.kpi.alphaSub(
+                  formatBps(perf.portfolioBps),
+                  perf.benchmarkCode,
+                  formatBps(perf.benchmarkBps),
+                )
               : seriesIgnoresStrategy
-                ? 'không áp được cho chiến lược riêng'
-                : 'thiếu dữ liệu giá theo phiên'
+                ? t.kpi.alphaNotForStrategy
+                : lyDoChuaCoAlpha.sub
           }
           chart={
             perfInScope && alphaSeries.length >= 2 ? (
@@ -948,8 +1028,8 @@ export default async function DashboardPage({
         {seeAllTeams && teamRows.length > 0 ? (
           <Card className="p-5 sm:col-span-2 xl:col-span-3">
             <Section
-              title="Vốn & lãi/lỗ theo nhóm"
-              sub="Mỗi nhóm tính từ đúng chuỗi giao dịch của nhóm đó"
+              title={t.dash.teamPnlTitle}
+              sub={t.dash.teamPnlSub}
               href="/teams"
             />
 
@@ -961,11 +1041,11 @@ export default async function DashboardPage({
             */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <div>
-                <p className="mb-3 text-xs font-medium text-slate-soft">Vốn đang triển khai</p>
+                <p className="mb-3 text-xs font-medium text-slate-soft">{t.dash.deployedCapital}</p>
                 <RankedBars items={teamCapitalBars} />
               </div>
               <div>
-                <p className="mb-3 text-xs font-medium text-slate-soft">Lãi/lỗ trên giá vốn</p>
+                <p className="mb-3 text-xs font-medium text-slate-soft">{t.dash.pnlOnCost}</p>
                 <DivergingBars items={teamPnlBars} />
               </div>
             </div>
@@ -974,53 +1054,53 @@ export default async function DashboardPage({
               <table className="w-full min-w-[32rem] text-xs">
                 <thead>
                   <tr className="border-b border-ink-800 text-left text-slate-muted">
-                    <th className="pb-2 font-medium">Nhóm</th>
-                    <th className="pb-2 text-right font-medium">Giá trị TT</th>
-                    <th className="pb-2 text-right font-medium">Đã chốt</th>
-                    <th className="pb-2 text-right font-medium">Chưa chốt</th>
-                    <th className="pb-2 text-right font-medium">Lệnh</th>
-                    <th className="pb-2 text-right font-medium">Mã</th>
+                    <th className="pb-2 font-medium">{t.dash.colTeam}</th>
+                    <th className="pb-2 text-right font-medium">{t.common.marketValue}</th>
+                    <th className="pb-2 text-right font-medium">{t.dash.colRealized}</th>
+                    <th className="pb-2 text-right font-medium">{t.dash.colUnrealized}</th>
+                    <th className="pb-2 text-right font-medium">{t.dash.colOrders}</th>
+                    <th className="pb-2 text-right font-medium">{t.dash.colSymbols}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-800">
-                  {teamRows.map((t) => (
-                    <tr key={t.teamId || 'unassigned'}>
+                  {teamRows.map((nh) => (
+                    <tr key={nh.teamId || 'unassigned'}>
                       <td className="py-2">
                         <span className="flex items-center gap-2">
                           <span
                             className="size-2 shrink-0 rounded-sm"
-                            style={{ backgroundColor: seriesColor(t.colorIndex) }}
+                            style={{ backgroundColor: seriesColor(nh.colorIndex) }}
                             aria-hidden
                           />
                           <span
-                            className={t.unassigned ? 'text-slate-muted' : 'text-slate-soft'}
+                            className={nh.unassigned ? 'text-slate-muted' : 'text-slate-soft'}
                           >
-                            {t.nameVi}
+                            {nh.nameVi}
                           </span>
-                          {t.unassigned ? (
+                          {nh.unassigned ? (
                             <span
                               className="rounded border border-warn-500/40 px-1 py-px text-micro text-warn-500"
-                              title="Lệnh chưa được gán nhóm — vẫn tính vào danh mục"
+                              title={t.dash.unassignedTitle}
                             >
-                              chưa gán
+                              {t.dash.unassigned}
                             </span>
                           ) : null}
                         </span>
                       </td>
                       <td className="tabular py-2 text-right">
-                        <MoneyCompact value={t.marketValue} className="text-strong" />
+                        <MoneyCompact value={nh.marketValue} className="text-strong" />
                       </td>
                       <td className="tabular py-2 text-right">
-                        <MoneyCompact value={t.realizedPnl} signed />
+                        <MoneyCompact value={nh.realizedPnl} signed />
                       </td>
                       <td className="tabular py-2 text-right">
-                        <MoneyCompact value={t.unrealizedPnl} signed />
+                        <MoneyCompact value={nh.unrealizedPnl} signed />
                       </td>
                       <td className="tabular py-2 text-right text-slate-muted">
-                        {t.tradeCount}
+                        {nh.tradeCount}
                       </td>
                       <td className="tabular py-2 text-right text-slate-muted">
-                        {t.positionCount}
+                        {nh.positionCount}
                       </td>
                     </tr>
                   ))}
@@ -1029,11 +1109,9 @@ export default async function DashboardPage({
 
               {teamRows.some((t) => t.unassigned) ? (
                 <p className="mt-3 text-tiny text-ink-500">
-                  &ldquo;Chưa gán&rdquo; là lệnh có người thực hiện không thuộc nhóm nào — ví dụ
-                  Admin nhập hộ. Cộng cả dòng này thì tổng theo nhóm bằng đúng toàn danh mục.
-                  Gán nhóm ở{' '}
+                  {t.dash.unassignedNote}
                   <Link href="/admin/users" className="text-accent-400 hover:underline">
-                    Duyệt &amp; Người dùng
+                    {t.dash.usersLink}
                   </Link>
                   .
                 </p>
@@ -1043,16 +1121,16 @@ export default async function DashboardPage({
         ) : null}
 
         <Card className="p-5">
-          <Section title="Sector Exposure" href="/portfolio/allocation" />
+          <Section title={t.dash.sectorExposure} href="/portfolio/allocation" />
           {sectorSlices.length === 0 ? (
-            <p className="py-4 text-sm text-slate-muted">Chưa có vị thế nào.</p>
+            <p className="py-4 text-sm text-slate-muted">{t.dash.noPositions}</p>
           ) : (
             <div className="flex flex-col items-center gap-4">
               <Donut
                 slices={sectorSlices}
                 size={148}
                 thickness={20}
-                centerLabel="ngành"
+                centerLabel={t.dash.sectorCenter}
                 centerValue={String(summary.sectorExposure.length)}
               />
               <DonutLegend slices={sectorSlices} className="w-full" />
@@ -1062,20 +1140,20 @@ export default async function DashboardPage({
 
         <Card className="p-5">
           <Section
-            title="Top 10 mã nắm giữ nhiều nhất"
+            title={t.dash.top10Title}
             href="/portfolio/positions"
-            hrefLabel="Xem tất cả"
+            hrefLabel={t.common.viewAll}
           />
           {open.length === 0 ? (
-            <p className="py-4 text-xs text-ink-500">Chưa giữ mã nào.</p>
+            <p className="py-4 text-xs text-ink-500">{t.dash.noHoldings}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-ink-800 text-left text-slate-muted">
-                    <th className="pb-2 font-medium">Mã CK</th>
-                    <th className="pb-2 text-right font-medium">Tỷ trọng</th>
-                    <th className="pb-2 text-right font-medium">Giá trị</th>
+                    <th className="pb-2 font-medium">{t.dash.colStock}</th>
+                    <th className="pb-2 text-right font-medium">{t.common.weight}</th>
+                    <th className="pb-2 text-right font-medium">{t.dash.colValue}</th>
                     <th className="pb-2 text-right font-medium">P&amp;L</th>
                     <th className="pb-2 text-right font-medium">P&amp;L (%)</th>
                   </tr>
@@ -1135,8 +1213,8 @@ export default async function DashboardPage({
         */}
         <Card className="p-5">
           <Section
-            title="Tài khoản & vốn theo IB"
-            sub={`${ibTongTaiKhoan} tài khoản · vốn nạp ròng đã xác nhận`}
+            title={t.dash.ibTitle}
+            sub={t.dash.ibSub(ibTongTaiKhoan)}
           />
           {ibExposure.length === 0 ? (
             /*
@@ -1148,13 +1226,15 @@ export default async function DashboardPage({
             */
             capitalScope === 'NONE' ? (
               <p className="py-4 text-xs text-ink-500">
-                Bạn không có quyền xem dữ liệu vốn.
+                {t.dash.ibNoPermission}
               </p>
             ) : (
               <p className="py-4 text-xs text-ink-500">
-                Chưa có tài khoản chứng khoán nào{filter.teamId !== undefined ? ' trong phạm vi đang xem' : ''}. Thành viên tự khai ở{' '}
+                {t.dash.ibNoAccounts}
+                {filter.teamId !== undefined ? t.dash.ibInScope : ''}
+                {t.dash.ibDeclareAt}
                 <Link href="/profile" className="text-accent-soft hover:underline">
-                  Tài khoản của tôi
+                  {t.dash.myAccounts}
                 </Link>
                 .
               </p>
@@ -1172,10 +1252,11 @@ export default async function DashboardPage({
                 khác người làm ra con số.
               */}
               <p className="mt-3 border-t border-ink-800 pt-2.5 text-tiny leading-relaxed text-ink-500">
-                Tổng <MoneyCompact value={ibTongVon} className="text-slate-muted" /> qua{' '}
-                {ibExposure.length} đầu mối · nạp trừ rút, chỉ tính dòng vốn đã xác nhận.
+                {t.dash.ibTotalPrefix}
+                <MoneyCompact value={ibTongVon} className="text-slate-muted" />
+                {t.dash.ibTotalVia(ibExposure.length)}
                 {ibSoDong > 0
-                  ? ` ${ibSoDong} tài khoản đã đóng vẫn được tính — lịch sử nạp vốn giữ nguyên.`
+                  ? t.dash.ibClosed(ibSoDong)
                   : ''}
               </p>
             </>
@@ -1183,10 +1264,10 @@ export default async function DashboardPage({
         </Card>
 
         <Card className="p-5">
-          <Section title="Risk & Alerts" href="/risk" />
+          <Section title={t.dash.riskAlerts} href="/risk" />
           {alerts.length === 0 ? (
             <p className="flex items-center gap-2 text-sm text-up-500">
-              <span aria-hidden>🟢</span> Không có cảnh báo nào
+              <span aria-hidden>🟢</span> {t.dash.noAlerts}
             </p>
           ) : (
             <ul className="space-y-2.5">
@@ -1200,9 +1281,9 @@ export default async function DashboardPage({
                       {a.title}
                     </span>
                     <span className="tabular block text-tiny text-slate-muted">
-                      {formatMeasure(a.ruleMetric as RiskMetric, a.measuredValue)} · đã{' '}
+                      {formatMeasure(a.ruleMetric as RiskMetric, a.measuredValue)}{t.dash.alertAgo}
                       {elapsedVi(a.triggeredAt)}
-                      {a.status === 'ACKNOWLEDGED' ? ' · đã tiếp nhận' : ''}
+                      {a.status === 'ACKNOWLEDGED' ? t.dash.acknowledged : ''}
                     </span>
                   </Link>
                 </li>
@@ -1212,16 +1293,16 @@ export default async function DashboardPage({
         </Card>
 
         <Card className="p-5">
-          <Section title="Strategy Allocation" href="/strategies" />
+          <Section title={t.dash.strategyAllocation} href="/strategies" />
           {strategySlices.length === 0 ? (
-            <p className="py-4 text-sm text-slate-muted">Chưa có giao dịch nào.</p>
+            <p className="py-4 text-sm text-slate-muted">{t.dash.noTrades}</p>
           ) : (
             <div className="flex flex-col items-center gap-4">
               <Donut
                 slices={strategySlices}
                 size={148}
                 thickness={20}
-                centerLabel="chiến lược"
+                centerLabel={t.dash.strategyCenter}
                 centerValue={String(strategySlices.length)}
               />
               <DonutLegend slices={strategySlices} className="w-full" />
@@ -1239,9 +1320,9 @@ export default async function DashboardPage({
           Dùng chung một mảng `recentTrades` nên không thêm truy vấn nào.
         */}
         <Card className="p-5">
-          <Section title="Recent Activity" href="/transactions" hrefLabel="Xem tất cả" />
+          <Section title={t.dash.recentActivity} href="/transactions" hrefLabel={t.common.viewAll} />
           {recentTrades.length === 0 ? (
-            <p className="text-xs text-ink-500">Chưa có giao dịch nào.</p>
+            <p className="text-xs text-ink-500">{t.dash.noTrades}</p>
           ) : (
             <ul className="space-y-2">
               {recentTrades.map((t) => {
@@ -1326,23 +1407,23 @@ export default async function DashboardPage({
         */}
         <Card className="p-5 sm:col-span-2">
           <Section
-            title="Giao dịch gần nhất"
+            title={t.dash.recentTrades}
             href="/transactions"
-            hrefLabel="Xem tất cả giao dịch"
+            hrefLabel={t.dash.viewAllTrades}
           />
           {recentTrades.length === 0 ? (
-            <p className="py-4 text-xs text-ink-500">Chưa có giao dịch nào.</p>
+            <p className="py-4 text-xs text-ink-500">{t.dash.noTrades}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[38rem] text-xs">
                 <thead>
                   <tr className="border-b border-ink-800 text-left text-slate-muted">
-                    <th className="pb-2 font-medium">Thời gian</th>
-                    <th className="pb-2 font-medium">Loại</th>
-                    <th className="pb-2 font-medium">Mã CK</th>
-                    <th className="pb-2 font-medium">Chiến lược</th>
-                    <th className="pb-2 text-right font-medium">Giá trị</th>
-                    <th className="pb-2 text-right font-medium">Trạng thái</th>
+                    <th className="pb-2 font-medium">{t.dash.colTime}</th>
+                    <th className="pb-2 font-medium">{t.dash.colType}</th>
+                    <th className="pb-2 font-medium">{t.dash.colStock}</th>
+                    <th className="pb-2 font-medium">{t.dash.colStrategy}</th>
+                    <th className="pb-2 text-right font-medium">{t.dash.colValue}</th>
+                    <th className="pb-2 text-right font-medium">{t.dash.colStatus}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-800">
@@ -1438,23 +1519,23 @@ export default async function DashboardPage({
         {showMembers ? (
           <Card className="p-5">
             <Section
-              title="Thành viên lợi nhuận cao nhất"
-              sub="Sắp theo lãi/lỗ; mỗi người tính từ chuỗi lệnh của chính họ"
+              title={t.dash.topMembers}
+              sub={t.dash.topMembersSub}
               href="/members"
-              hrefLabel="Xem tất cả thành viên"
+              hrefLabel={t.dash.viewAllMembers}
             />
             {memberBars.length === 0 ? (
               <p className="py-4 text-xs text-ink-500">
-                Chưa có ai phát sinh giao dịch trong phạm vi đang chọn.
+                {t.dash.noMembers}
               </p>
             ) : (
               <>
                 <DivergingBars items={memberBars} />
                 {hiddenMembers > 0 ? (
                   <p className="mt-3 text-tiny text-ink-500">
-                    Còn {hiddenMembers} người nữa —{' '}
+                    {t.dash.moreMembers(hiddenMembers)}
                     <Link href="/members" className="text-accent-400 hover:underline">
-                      xem danh sách đầy đủ
+                      {t.dash.fullList}
                     </Link>
                     .
                   </p>
@@ -1471,12 +1552,11 @@ export default async function DashboardPage({
         thay vì đi tìm một "bảng lưu P&L" không tồn tại.
       */}
       <p className="mt-4 text-tiny leading-relaxed text-ink-500">
-        Mọi con số trên trang này được tính từ giao dịch, giá thị trường và dòng vốn — không có
-        bảng nào lưu sẵn P&amp;L. Lãi/lỗ đã thực hiện{' '}
+        {t.dash.footerNote}
         <span className="tabular text-slate-muted">
           <Money value={summary.realizedPnl} signed />
         </span>{' '}
-        · chưa thực hiện{' '}
+        {t.dash.footerUnrealized}
         <span className="tabular text-slate-muted">
           <Money value={summary.unrealizedPnl} signed />
         </span>
@@ -1495,11 +1575,20 @@ function Header({
   subtitle,
   filters,
   alertCount,
+  alertsTitle,
 }: {
   title: string;
   subtitle: string;
   filters: React.ReactNode;
   alertCount: number;
+  /**
+   * Nhãn của huy hiệu cảnh báo, đã dịch sẵn.
+   *
+   * Component này nằm NGOÀI hàm trang nên không thấy từ điển — và không nên tự đọc:
+   * `getDict()` là hàm async chỉ dùng được trong Server Component, còn đây là một
+   * thành phần trình bày thuần. Nhận chữ đã dịch qua prop giữ nó thuần như vậy.
+   */
+  alertsTitle: string;
 }) {
   return (
     <header className="mb-4 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
@@ -1513,7 +1602,7 @@ function Header({
         {alertCount > 0 ? (
           <Link
             href="/risk"
-            title={`${alertCount} cảnh báo đang mở`}
+            title={alertsTitle}
             className="relative mb-px grid size-9 place-items-center rounded-lg border border-ink-700 text-slate-muted transition hover:border-ink-600 hover:text-strong"
           >
             <Icon name="risk" />
@@ -1531,7 +1620,7 @@ function Section({
   title,
   sub,
   href,
-  hrefLabel = 'Chi tiết',
+  hrefLabel,
 }: {
   title: string;
   sub?: string;

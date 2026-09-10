@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { forbidden, notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { Card, EmptyState, PageHeader, RoleBadge, TradeStatusChip } from '@/components/ui';
 import { AvgCost, Change, Money, MoneyCompact, Price, Quantity, Weight } from '@/components/money';
@@ -56,6 +57,7 @@ export default async function MemberDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const viewer = await requirePagePermission('user.view');
+  const { t } = await getDict();
   const { id } = await params;
 
   const scope = dataScope(viewer.permissions, 'position');
@@ -244,12 +246,12 @@ export default async function MemberDetailPage({
       */}
       <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Portfolio Value"
+          label={t.kpi.portfolioValue}
           value={<MoneyCompact value={memberPortfolioValue} className="text-strong" />}
           hint="giá trị vị thế + số dư tiền"
         />
         <StatCard
-          label="Invested Capital"
+          label={t.kpi.investedCapital}
           value={<MoneyCompact value={investedCost} className="text-strong" />}
           hint={
             <>
@@ -260,7 +262,7 @@ export default async function MemberDetailPage({
           }
         />
         <StatCard
-          label="Available Cash"
+          label={t.kpi.availableCash}
           value={<MoneyCompact value={availableCash} className="text-strong" />}
           hint={
             <>
@@ -271,7 +273,7 @@ export default async function MemberDetailPage({
           }
         />
         <StatCard
-          label="Total P&amp;L"
+          label={t.kpi.totalPnl}
           value={<MoneyCompact value={totalPnl} signed />}
           /*
             Dòng phụ giữ luôn phần ĐÃ CHỐT / CHƯA CHỐT.
@@ -351,7 +353,7 @@ export default async function MemberDetailPage({
         <div className="flex items-baseline justify-between border-b border-ink-800 px-5 py-3">
           <h2 className="text-sm font-semibold text-strong">Vị thế đang giữ</h2>
           <p className="text-tiny text-slate-muted">
-            Giá vốn tính riêng trên chuỗi lệnh của người này
+            Giá vốn tính riêng trên chuỗi lệnh của người này · cột % đã gồm cổ tức
           </p>
         </div>
 
@@ -359,7 +361,7 @@ export default async function MemberDetailPage({
           <EmptyState title="Không còn giữ mã nào" />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[46rem] text-sm">
+            <table className="w-full min-w-[58rem] text-sm">
               <thead>
                 <tr className="border-b border-ink-800 text-left text-xs text-slate-muted">
                   <Th>Mã</Th>
@@ -369,7 +371,9 @@ export default async function MemberDetailPage({
                   <Th className="text-right">Giá hiện tại</Th>
                   <Th className="text-right">Giá vốn</Th>
                   <Th className="text-right">Giá trị TT</Th>
-                  <Th className="text-right">Lãi/lỗ</Th>
+                  <Th className="text-right">Lãi/lỗ giá</Th>
+                  <Th className="text-right">Cổ tức</Th>
+                  <Th className="text-right">Tổng</Th>
                   <Th className="text-right">%</Th>
                 </tr>
               </thead>
@@ -416,8 +420,29 @@ export default async function MemberDetailPage({
                     <Td className="text-right">
                       <Money value={p.unrealizedPnl} signed />
                     </Td>
+                    {/*
+                      CỔ TỨC ĐỂ RIÊNG, KHÔNG CỘNG VÀO CỘT LÃI/LỖ GIÁ.
+
+                      Hai nguồn lợi nhuận khác hẳn nhau: một cái là chênh lệch giá
+                      trên giá vốn, một cái là tiền doanh nghiệp đã trả và không mất
+                      đi. Trộn vào thì cột % không còn là "giá đã đi bao nhiêu" —
+                      đúng con số người ta nhìn để quyết mua thêm hay cắt lỗ.
+
+                      Cổ tức bằng CỔ PHIẾU không nằm ở đây: nó đã vào cột Khối lượng
+                      và làm giảm Giá vốn TB. Cộng thêm lần nữa là tính hai lần.
+                    */}
                     <Td className="text-right">
-                      <Change bps={p.returnBps} className="text-xs" />
+                      {p.dividendCash > 0n ? (
+                        <Money value={p.dividendCash} className="text-up-500" />
+                      ) : (
+                        <span className="text-ink-500">—</span>
+                      )}
+                    </Td>
+                    <Td className="text-right">
+                      <Money value={p.totalReturn} signed />
+                    </Td>
+                    <Td className="text-right">
+                      <Change bps={p.totalReturnBps} className="text-xs" />
                     </Td>
                   </tr>
                 ))}

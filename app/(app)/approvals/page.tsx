@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { dataScope } from '@/domain/permissions';
 import {
@@ -26,7 +27,10 @@ import {
 import { WithdrawalDecision } from '@/components/WithdrawalDecision';
 import { computeAccountBalances } from '@/domain/portfolio-engine';
 
-export const metadata: Metadata = { title: 'Approvals' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.approvals };
+}
 
 /**
  * Hàng chờ duyệt (§21 menu Approvals) — Phase 04.
@@ -36,6 +40,7 @@ export const metadata: Metadata = { title: 'Approvals' };
  */
 export default async function ApprovalsPage() {
   const user = await requirePagePermission('approval.view');
+  const { t } = await getDict();
 
   /*
    * HÀNG CHỜ DUYỆT PHẢI THEO PHẠM VI, giống mọi khối tiền khác.
@@ -173,7 +178,7 @@ export default async function ApprovalsPage() {
   return (
     <>
       <PageHeader
-        title="Approvals"
+        title={t.nav.approvals}
         subtitle={
           [
             `${pendingTrades.length} giao dịch`,

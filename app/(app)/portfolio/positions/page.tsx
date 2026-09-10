@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import {
@@ -15,7 +16,10 @@ import {
 import { dataScope } from '@/domain/permissions';
 import { applyScope, computePositions, type EngineFilter, type PositionView } from '@/domain/portfolio-engine';
 
-export const metadata: Metadata = { title: 'Positions' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.positions };
+}
 
 type SortKey = 'weight' | 'pnl' | 'return' | 'value' | 'sector' | 'symbol';
 
@@ -32,6 +36,7 @@ export default async function PositionsPage({
   searchParams: Promise<{ sort?: SortKey; strategy?: string; sector?: string; closed?: string }>;
 }) {
   const user = await requirePagePermission('position.view');
+  const { t } = await getDict();
   const params = await searchParams;
 
   const portfolio = await prisma.portfolio.findFirst({
@@ -43,7 +48,7 @@ export default async function PositionsPage({
   if (!portfolio) {
     return (
       <>
-        <PageHeader title="Positions" />
+        <PageHeader title={t.nav.positions} />
         <Card>
           <EmptyState title="Chưa có danh mục nào" />
         </Card>
@@ -96,7 +101,7 @@ export default async function PositionsPage({
       </div>
 
       <PageHeader
-        title="Positions"
+        title={t.nav.positions}
         subtitle={`${open.length} vị thế đang giữ${closedCount > 0 ? ` · ${closedCount} đã đóng` : ''}`}
       />
 
@@ -124,7 +129,7 @@ export default async function PositionsPage({
             <select id="sort" name="sort" defaultValue={params.sort ?? 'weight'} className="field">
               <option value="weight">Tỷ trọng</option>
               <option value="pnl">Lãi/Lỗ</option>
-              <option value="return">Return %</option>
+              <option value="return">{t.common.retPct}</option>
               <option value="value">Giá trị thị trường</option>
               <option value="sector">Ngành</option>
               <option value="symbol">Mã</option>
@@ -205,7 +210,7 @@ export default async function PositionsPage({
                   <th className="px-4 py-2.5 text-right font-medium">Giá trị TT</th>
                   <th className="px-4 py-2.5 text-right font-medium">Chưa thực hiện</th>
                   <th className="px-4 py-2.5 text-right font-medium">Đã thực hiện</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Return</th>
+                  <th className="px-4 py-2.5 text-right font-medium">{t.common.ret}</th>
                   <th className="px-4 py-2.5 text-right font-medium">Tỷ trọng</th>
                 </tr>
               </thead>

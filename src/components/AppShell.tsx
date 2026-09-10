@@ -18,6 +18,8 @@ import type { IconName } from '@/components/icons';
 import { PhaseTag, RoleBadge } from '@/components/ui';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { getTheme } from '@/components/theme';
+import { getDict, type Dict } from '@/i18n';
+import { LangToggle } from '@/components/LangToggle';
 import { getMarketDataStatus } from '@/domain/portfolio-engine';
 import { countOpenAlertsBySeverity } from '@/risk/scan';
 import { countPendingForUser } from '@/approvals/queue';
@@ -25,14 +27,21 @@ import type { AuthUser } from '@/auth/guards';
 import { BRAND_NAME_UPPER, BRAND_TAGLINE } from '@/lib/brand';
 
 interface MenuEntry {
-  label: string;
+  /**
+   * Khoá tra vào `t.nav`, KHÔNG phải chữ hiển thị.
+   *
+   * Kiểu lấy thẳng từ từ điển nên gõ sai khoá là lỗi biên dịch, và thêm một mục
+   * menu mà quên dịch cũng vậy — không có đường nào để một nhãn lọt ra màn hình
+   * mà chưa qua từ điển.
+   */
+  labelKey: keyof Dict['nav'];
   href?: string;
   permission: string;
   /** Biểu tượng của mục cha. Mục con cố tình KHÔNG có icon — xem chú thích dưới. */
   icon?: IconName;
   /** Nhãn phase nếu chưa triển khai. */
   phase?: string;
-  children?: { label: string; href?: string; phase?: string }[];
+  children?: { labelKey: keyof Dict['nav']; href?: string; phase?: string }[];
 }
 
 /**
@@ -42,71 +51,80 @@ interface MenuEntry {
  * thụt vào sau một vạch dọc, nên quan hệ cha–con đã rõ bằng vị trí. Thêm icon cho
  * chúng sẽ tạo hai cột icon lệch nhau và làm menu trông rối hơn chứ không gọn hơn.
  */
+/*
+ * BẢNG MENU GIỮ KHOÁ, KHÔNG GIỮ CHỮ.
+ *
+ * Đây là hằng số ở module scope: nó chạy MỘT LẦN lúc nạp module, trong khi từ điển
+ * phụ thuộc cookie của TỪNG request. Nhét chữ vào đây thì người đầu tiên mở app
+ * quyết định ngôn ngữ cho mọi người sau đó — một lỗi chỉ lộ ra khi có hai người
+ * dùng hai ngôn ngữ khác nhau cùng lúc. Chữ được tra ở chỗ kết xuất.
+ */
 const MENU: readonly MenuEntry[] = [
-  { label: 'Dashboard', href: '/dashboard', permission: 'dashboard.view', icon: 'dashboard' },
+  { labelKey: 'dashboard', href: '/dashboard', permission: 'dashboard.view', icon: 'dashboard' },
   {
-    label: 'Portfolio',
+    labelKey: 'portfolio',
     href: '/portfolio',
     permission: 'portfolio.view',
     icon: 'portfolio',
     children: [
-      { label: 'Overview', href: '/portfolio' },
-      { label: 'Positions', href: '/portfolio/positions' },
-      { label: 'Allocation', href: '/portfolio/allocation' },
+      { labelKey: 'overview', href: '/portfolio' },
+      { labelKey: 'positions', href: '/portfolio/positions' },
+      { labelKey: 'allocation', href: '/portfolio/allocation' },
     ],
   },
   {
-    label: 'Transactions',
+    labelKey: 'transactions',
     href: '/transactions',
     permission: 'transaction.view',
     icon: 'transactions',
     children: [
-      { label: 'All Transactions', href: '/transactions' },
-      { label: 'Buy', href: '/transactions?type=BUY' },
-      { label: 'Sell', href: '/transactions?type=SELL' },
+      { labelKey: 'allTransactions', href: '/transactions' },
+      { labelKey: 'buy', href: '/transactions?type=BUY' },
+      { labelKey: 'sell', href: '/transactions?type=SELL' },
+      { labelKey: 'dividend', href: '/transactions/dividend' },
     ],
   },
-  { label: 'Strategies', href: '/strategies', permission: 'strategy.view', icon: 'strategies' },
+  { labelKey: 'strategies', href: '/strategies', permission: 'strategy.view', icon: 'strategies' },
   {
-    label: 'Market',
+    labelKey: 'market',
     href: '/market/sectors',
     permission: 'stock.view',
     icon: 'market',
     children: [
-      { label: 'Sectors', href: '/market/sectors' },
-      { label: 'Market Data', href: '/market/market-data' },
+      { labelKey: 'sectors', href: '/market/sectors' },
+      { labelKey: 'marketData', href: '/market/market-data' },
     ],
   },
-  { label: 'Risk', href: '/risk', permission: 'risk.view', icon: 'risk' },
-  { label: 'Teams', href: '/teams', permission: 'team.view', icon: 'teams' },
-  { label: 'Members', href: '/members', permission: 'user.view', icon: 'members' },
-  { label: 'Approvals', href: '/approvals', permission: 'approval.view', icon: 'approvals' },
-  { label: 'Reports', href: '/reports', permission: 'report.view', icon: 'reports' },
-  { label: 'Audit Log', href: '/audit', permission: 'audit.view', icon: 'audit' },
-  { label: 'Settings', href: '/settings', permission: 'settings.view', icon: 'settings' },
+  { labelKey: 'risk', href: '/risk', permission: 'risk.view', icon: 'risk' },
+  { labelKey: 'teams', href: '/teams', permission: 'team.view', icon: 'teams' },
+  { labelKey: 'members', href: '/members', permission: 'user.view', icon: 'members' },
+  { labelKey: 'approvals', href: '/approvals', permission: 'approval.view', icon: 'approvals' },
+  { labelKey: 'reports', href: '/reports', permission: 'report.view', icon: 'reports' },
+  { labelKey: 'auditLog', href: '/audit', permission: 'audit.view', icon: 'audit' },
+  { labelKey: 'settings', href: '/settings', permission: 'settings.view', icon: 'settings' },
 ];
 
 const ADMIN_MENU: readonly MenuEntry[] = [
   {
-    label: 'Cơ cấu tổ chức',
+    labelKey: 'organization',
     href: '/admin/organization',
     permission: 'team.view',
     icon: 'teams',
   },
   {
-    label: 'Quản lý chiến lược',
+    labelKey: 'manageStrategies',
     href: '/admin/strategies',
     permission: 'strategy.view',
     icon: 'strategies',
   },
   {
-    label: 'Duyệt & Người dùng',
+    labelKey: 'usersApprovals',
     href: '/admin/users',
     permission: 'user.approve',
     icon: 'userCheck',
   },
   {
-    label: 'Ma trận quyền',
+    labelKey: 'permissionMatrix',
     href: '/admin/permissions',
     permission: 'permission.view',
     icon: 'permissions',
@@ -116,6 +134,16 @@ const ADMIN_MENU: readonly MenuEntry[] = [
 export async function AppShell({ user, children }: { user: AuthUser; children: ReactNode }) {
   // Lựa chọn chủ đề đọc từ cookie, truyền xuống nút để lượt server tô đúng ngay.
   const theme = await getTheme();
+
+  /*
+   * Từ điển đọc theo TỪNG REQUEST (cookie), nên phải lấy ở đây chứ không ở module
+   * scope — xem chú thích của bảng MENU.
+   */
+  const { t, locale } = await getDict();
+  const nhan = (k: keyof Dict['nav']): string => {
+    const v = t.nav[k];
+    return typeof v === 'string' ? v : String(v);
+  };
   const visible = MENU.filter((item) => user.permissions.has(item.permission));
   const adminVisible = ADMIN_MENU.filter((item) => user.permissions.has(item.permission));
 
@@ -163,11 +191,11 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
       <nav className="flex-1 overflow-y-auto px-2.5 py-3">
         <ul className="space-y-0.5">
           {visible.map((item) => (
-            <li key={item.label}>
+            <li key={item.labelKey}>
               {item.href ? (
                 <NavItem
                   href={item.href}
-                  label={item.label}
+                  label={nhan(item.labelKey)}
                   icon={item.icon}
                   badge={
                     item.href === '/risk'
@@ -196,7 +224,7 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
                   className="flex cursor-not-allowed items-center gap-2 rounded-lg px-3 py-2 text-sm text-ink-500"
                   title={`Sẽ có ở phase ${item.phase}`}
                 >
-                  <span>{item.label}</span>
+                  <span>{nhan(item.labelKey)}</span>
                   {item.phase ? <PhaseTag phase={item.phase} /> : null}
                 </div>
               )}
@@ -208,20 +236,20 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
                 <ul className="mt-0.5 mb-1.5 ml-[1.875rem] border-l border-ink-800 pl-3">
                   {item.children.map((child) =>
                     child.href ? (
-                      <li key={child.label}>
+                      <li key={child.labelKey}>
                         <Link
                           href={child.href}
                           className="block py-1 text-xs text-slate-muted transition hover:text-strong"
                         >
-                          {child.label}
+                          {nhan(child.labelKey)}
                         </Link>
                       </li>
                     ) : (
                       <li
-                        key={child.label}
+                        key={child.labelKey}
                         className="cursor-not-allowed py-1 text-xs text-ink-500"
                       >
-                        {child.label}
+                        {nhan(child.labelKey)}
                       </li>
                     ),
                   )}
@@ -234,12 +262,12 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
         {adminVisible.length > 0 ? (
           <>
             <p className="mt-5 mb-1.5 px-3 text-micro font-semibold tracking-[0.16em] text-slate-muted">
-              QUẢN TRỊ
+              {t.nav.adminSection}
             </p>
             <ul className="space-y-0.5">
               {adminVisible.map((item) => (
-                <li key={item.label}>
-                  <NavItem href={item.href!} label={item.label} icon={item.icon} />
+                <li key={item.labelKey}>
+                  <NavItem href={item.href!} label={nhan(item.labelKey)} icon={item.icon} />
                 </li>
               ))}
             </ul>
@@ -385,7 +413,7 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
                         ? `Market Data · ${marketData.lastSuccessAt.toLocaleTimeString('vi-VN')}`
                         : `Market Data trễ ${marketData.ageMinutes} phút`
                       : marketData.connected
-                        ? `Giá phiên ${phienNgan(marketData.quoteTradingDate)}`
+                        ? t.nav.priceSession(phienNgan(marketData.quoteTradingDate))
                         : `Chậm ${marketData.sessionsBehind} phiên`}
                 </span>
               </Link>
@@ -410,6 +438,7 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
               </span>
             </Link>
 
+            <LangToggle current={locale} />
             <ThemeToggle initial={theme} />
 
             {/*
@@ -428,8 +457,8 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
               */}
               <button
                 type="submit"
-                aria-label="Đăng xuất"
-                title="Đăng xuất"
+                aria-label={t.nav.logout}
+                title={t.nav.logout}
                 className="grid size-11 place-items-center rounded-lg border border-ink-700 text-slate-muted transition hover:border-down-500/50 hover:text-down-500 sm:h-auto sm:w-auto sm:px-3 sm:py-1.5"
               >
                 <svg viewBox="0 0 24 24" className="size-5 sm:hidden" aria-hidden>
@@ -442,7 +471,7 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
                     fill="none"
                   />
                 </svg>
-                <span className="hidden text-xs sm:block">Đăng xuất</span>
+                <span className="hidden text-xs sm:block">{t.nav.logout}</span>
               </button>
             </form>
           </div>

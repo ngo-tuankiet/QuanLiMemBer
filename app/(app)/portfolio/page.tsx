@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { StatCard } from '@/components/StatCard';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
@@ -9,7 +10,10 @@ import { AvgCost } from '@/components/money';
 import { dataScope } from '@/domain/permissions';
 import { computePortfolioSummary, applyScope, type EngineFilter } from '@/domain/portfolio-engine';
 
-export const metadata: Metadata = { title: 'Portfolio' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.portfolio };
+}
 
 /**
  * Portfolio Overview (§21 Portfolio → Overview) — Phase 06.
@@ -23,6 +27,7 @@ export default async function PortfolioPage({
   searchParams: Promise<{ team?: string; strategy?: string; sector?: string }>;
 }) {
   const user = await requirePagePermission('portfolio.view');
+  const { t } = await getDict();
   const params = await searchParams;
 
   const portfolio = await prisma.portfolio.findFirst({
@@ -34,7 +39,7 @@ export default async function PortfolioPage({
   if (!portfolio) {
     return (
       <>
-        <PageHeader title="Portfolio" />
+        <PageHeader title={t.nav.portfolio} />
         <Card>
           <EmptyState
             title="Chưa có danh mục nào"
@@ -65,7 +70,7 @@ export default async function PortfolioPage({
   return (
     <>
       <PageHeader
-        title="Portfolio Overview"
+        title={t.page.portfolioOverview}
         subtitle={`${summary.portfolioName} · ${summary.positionCount} vị thế đang giữ`}
         actions={
           <div className="flex gap-2">
@@ -73,13 +78,13 @@ export default async function PortfolioPage({
               href="/portfolio/positions"
               className="rounded-lg border border-ink-600 px-3 py-1.5 text-xs text-slate-soft transition hover:border-ink-500 hover:text-strong"
             >
-              Positions
+              {t.nav.positions}
             </Link>
             <Link
               href="/portfolio/allocation"
               className="rounded-lg border border-ink-600 px-3 py-1.5 text-xs text-slate-soft transition hover:border-ink-500 hover:text-strong"
             >
-              Allocation
+              {t.nav.allocation}
             </Link>
           </div>
         }
@@ -108,22 +113,22 @@ export default async function PortfolioPage({
       {/* Cùng `StatCard` với `/members/[id]` — xem chú thích trong component. */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Portfolio Value"
+          label={t.kpi.portfolioValue}
           value={<MoneyCompact value={summary.portfolioValue} className="text-strong" />}
           hint="giá trị vị thế + số dư tiền"
         />
         <StatCard
-          label="Invested Capital"
+          label={t.kpi.investedCapital}
           value={<MoneyCompact value={summary.investedValue} className="text-strong" />}
           hint={<Weight bps={summary.allocation.investedBps} className="text-xs" />}
         />
         <StatCard
-          label="Available Cash"
+          label={t.kpi.availableCash}
           value={<MoneyCompact value={summary.cash.availableCash} className="text-strong" />}
           hint={<Weight bps={summary.allocation.cashBps} className="text-xs" />}
         />
         <StatCard
-          label="Total P&amp;L"
+          label={t.kpi.totalPnl}
           value={<MoneyCompact value={summary.totalPnl} signed />}
           hint={<Change bps={summary.totalPnlBps} className="text-xs" />}
         />
@@ -136,7 +141,7 @@ export default async function PortfolioPage({
         <Card className="overflow-hidden">
           <div className="flex items-baseline justify-between gap-3 border-b border-ink-800 px-5 py-3">
             <div>
-              <h2 className="text-sm font-semibold text-strong">Top Positions</h2>
+              <h2 className="text-sm font-semibold text-strong">{t.page.topPositions}</h2>
               <p className="mt-0.5 text-xs text-slate-muted">
                 Sắp theo giá trị thị trường
               </p>
@@ -165,7 +170,7 @@ export default async function PortfolioPage({
                     <th className="px-4 py-2.5 text-right font-medium">Giá hiện tại</th>
                     <th className="px-4 py-2.5 text-right font-medium">Giá trị TT</th>
                     <th className="px-4 py-2.5 text-right font-medium">Lãi/Lỗ</th>
-                    <th className="px-4 py-2.5 text-right font-medium">Return</th>
+                    <th className="px-4 py-2.5 text-right font-medium">{t.common.ret}</th>
                     <th className="px-4 py-2.5 text-right font-medium">Tỷ trọng</th>
                   </tr>
                 </thead>
@@ -225,7 +230,7 @@ export default async function PortfolioPage({
         {/* ------------------------------------------------------------ */}
         <div className="space-y-4">
           <Card className="p-5">
-            <h2 className="text-sm font-semibold text-strong">Capital Allocation</h2>
+            <h2 className="text-sm font-semibold text-strong">{t.page.capitalAllocation}</h2>
             <p className="mt-0.5 mb-4 text-xs text-slate-muted">
               Ba phần cộng lại bằng 100% giá trị danh mục.
             </p>

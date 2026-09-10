@@ -1,11 +1,15 @@
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { parseJsonField } from '@/lib/serialize';
 import { AUDIT_ACTION } from '@/lib/enums';
 
-export const metadata: Metadata = { title: 'Audit Log' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.auditLog };
+}
 
 const PAGE_SIZE = 40;
 
@@ -35,6 +39,7 @@ export default async function AuditPage({
   }>;
 }) {
   const user = await requirePagePermission('audit.view');
+  const { t } = await getDict();
 
   const params = await searchParams;
   const page = Math.max(1, Number(params.page ?? '1') || 1);
@@ -103,7 +108,7 @@ export default async function AuditPage({
   return (
     <>
       <PageHeader
-        title="Audit Log"
+        title={t.nav.auditLog}
         subtitle={
           filtered
             ? `${total.toLocaleString('vi-VN')} / ${grandTotal.toLocaleString('vi-VN')} bản ghi khớp bộ lọc`
@@ -266,7 +271,7 @@ export default async function AuditPage({
                     <div className="mt-2.5 grid grid-cols-1 gap-2 text-tiny sm:grid-cols-2">
                       {before ? (
                         <div className="rounded-lg border border-down-500/20 bg-down-500/5 p-2.5">
-                          <p className="mb-1 font-medium tracking-wide text-down-500">BEFORE</p>
+                          <p className="mb-1 font-medium tracking-wide text-down-500">{t.page.before}</p>
                           <DiffList data={before} changed={changed} />
                         </div>
                       ) : (
@@ -274,7 +279,7 @@ export default async function AuditPage({
                       )}
                       {after ? (
                         <div className="rounded-lg border border-up-500/20 bg-up-500/5 p-2.5">
-                          <p className="mb-1 font-medium tracking-wide text-up-500">AFTER</p>
+                          <p className="mb-1 font-medium tracking-wide text-up-500">{t.page.after}</p>
                           <DiffList data={after} changed={changed} />
                         </div>
                       ) : null}
@@ -300,7 +305,7 @@ export default async function AuditPage({
           <PageLink
             href={hrefWith(filters, { page: page + 1 })}
             disabled={page >= totalPages}
-            label="Sau →"
+            label={t.page.next}
           />
         </nav>
       ) : null}

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Change, Money, MoneyCompact, Weight } from '@/components/money';
@@ -15,7 +16,10 @@ import { dataScope } from '@/domain/permissions';
 import { applyScope, computePortfolioSummary, type EngineFilter } from '@/domain/portfolio-engine';
 import { formatBps, formatCompactVnd } from '@/lib/money';
 
-export const metadata: Metadata = { title: 'Allocation' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.allocation };
+}
 
 /**
  * Phân bổ danh mục (§14, §15, §16) — Phase 06.
@@ -30,6 +34,7 @@ export const metadata: Metadata = { title: 'Allocation' };
  */
 export default async function AllocationPage() {
   const user = await requirePagePermission('portfolio.view');
+  const { t } = await getDict();
 
   const portfolio = await prisma.portfolio.findFirst({
     where: { status: 'ACTIVE' },
@@ -40,7 +45,7 @@ export default async function AllocationPage() {
   if (!portfolio) {
     return (
       <>
-        <PageHeader title="Allocation" />
+        <PageHeader title={t.nav.allocation} />
         <Card>
           <EmptyState title="Chưa có danh mục nào" />
         </Card>
@@ -128,7 +133,7 @@ export default async function AllocationPage() {
       </div>
 
       <PageHeader
-        title="Allocation"
+        title={t.nav.allocation}
         subtitle="Ba cách nhìn cùng một khối vốn: theo loại tài sản, theo chiến lược, theo ngành."
       />
 
@@ -160,7 +165,7 @@ export default async function AllocationPage() {
       {/* -------------------------------------------------------------- */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="p-5">
-          <h2 className="text-sm font-semibold text-strong">Capital Allocation</h2>
+          <h2 className="text-sm font-semibold text-strong">{t.page.capitalAllocation}</h2>
           <p className="mt-0.5 mb-4 text-xs text-slate-muted">
             Ba phần cộng lại bằng 100% giá trị danh mục.
           </p>
@@ -176,7 +181,7 @@ export default async function AllocationPage() {
         </Card>
 
         <Card className="p-5">
-          <h2 className="text-sm font-semibold text-strong">Strategy Allocation</h2>
+          <h2 className="text-sm font-semibold text-strong">{t.dash.strategyAllocation}</h2>
           <p className="mt-0.5 mb-4 text-xs text-slate-muted">
             Vốn ròng đang triển khai — mua cộng, bán trừ, không đếm trùng.
           </p>
@@ -229,7 +234,7 @@ export default async function AllocationPage() {
       {/* §15 Sector Exposure — biểu đồ tròn + drill-down xuống mã        */}
       {/* -------------------------------------------------------------- */}
       <Card className="mt-4 p-5">
-        <h2 className="text-sm font-semibold text-strong">Sector Exposure</h2>
+        <h2 className="text-sm font-semibold text-strong">{t.dash.sectorExposure}</h2>
         <p className="mt-0.5 mb-4 text-xs text-slate-muted">
           Bấm tên ngành để lọc vị thế, bấm mã để xem giao dịch.
         </p>

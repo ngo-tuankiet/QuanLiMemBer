@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { AcknowledgeButton, RescanForm, RuleEditor } from './RiskForms';
@@ -31,7 +32,10 @@ import {
   type Severity,
 } from '@/lib/enums';
 
-export const metadata: Metadata = { title: 'Risk & Alerts' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.dash.riskAlerts };
+}
 
 /**
  * RISK & ALERTS (§19) — Phase 09.
@@ -47,6 +51,7 @@ export const metadata: Metadata = { title: 'Risk & Alerts' };
  */
 export default async function RiskPage() {
   const user = await requirePagePermission('risk.view');
+  const { t } = await getDict();
 
   /*
    * Quét lười trước khi đọc: mở trang Risk mà thấy số liệu của một giờ trước là
@@ -77,7 +82,7 @@ export default async function RiskPage() {
   return (
     <>
       <PageHeader
-        title="Risk &amp; Alerts"
+        title={t.dash.riskAlerts}
         subtitle={
           totalOpen === 0
             ? 'Không có cảnh báo nào đang mở'

@@ -1,12 +1,16 @@
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { REPORTS } from '@/reports/catalog';
 import { estimateRowCount } from '@/reports/build';
 import { PORTFOLIO_STATUS } from '@/lib/enums';
 
-export const metadata: Metadata = { title: 'Reports' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.reports };
+}
 
 /**
  * REPORTS (§20) — Phase 10.
@@ -33,6 +37,7 @@ const PERIOD_OPTIONS = [
 
 export default async function ReportsPage() {
   const user = await requirePagePermission('report.view');
+  const { t } = await getDict();
 
   const portfolios = await prisma.portfolio.findMany({
     where: { status: PORTFOLIO_STATUS.ACTIVE },
@@ -45,7 +50,7 @@ export default async function ReportsPage() {
   if (!defaultPortfolio) {
     return (
       <>
-        <PageHeader title="Reports" />
+        <PageHeader title={t.nav.reports} />
         <Card>
           <EmptyState
             title="Chưa có danh mục nào"
@@ -70,8 +75,8 @@ export default async function ReportsPage() {
   return (
     <>
       <PageHeader
-        title="Reports"
-        subtitle={`1 tệp tổng (.xlsx) · ${REPORTS.length} báo cáo lẻ (.csv) · mỗi lần xuất đều được ghi vào Audit Log`}
+        title={t.nav.reports}
+        subtitle={`1 tệp tổng (.xlsx) · ${REPORTS.length} báo cáo lẻ (.csv) · mỗi lần xuất đều được ghi vào ${t.nav.auditLog}`}
       />
 
       {/* ---------------------------------------------------------------- */}
@@ -116,7 +121,7 @@ export default async function ReportsPage() {
                 {!user.permissions.has('audit.export') ? (
                   <li className="text-warn-500">
                     Tài khoản này thiếu quyền <span className="font-mono">audit.export</span> nên
-                    tệp sẽ KHÔNG có sheet Audit Log.
+                    tệp sẽ KHÔNG có sheet {t.nav.auditLog}.
                   </li>
                 ) : null}
               </ul>

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { MoneyCompact, Weight } from '@/components/money';
@@ -15,7 +16,10 @@ import {
 } from '@/domain/portfolio-engine';
 import { formatVnd, ratioToBps } from '@/lib/money';
 
-export const metadata: Metadata = { title: 'Strategies' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.strategies };
+}
 
 /**
  * CHIẾN LƯỢC ĐẦU TƯ (§5, §16, §21) — mỗi chiến lược một thẻ.
@@ -39,6 +43,7 @@ export const metadata: Metadata = { title: 'Strategies' };
  */
 export default async function StrategiesPage() {
   const user = await requirePagePermission('strategy.view');
+  const { t } = await getDict();
 
   const portfolio = await prisma.portfolio.findFirst({
     where: { status: 'ACTIVE' },
@@ -109,7 +114,7 @@ export default async function StrategiesPage() {
   return (
     <>
       <PageHeader
-        title="Strategies"
+        title={t.nav.strategies}
         subtitle={
           `${strategies.filter((s) => s.isActive).length} chiến lược đang dùng · ` +
           `vốn ròng đang triển khai ${formatVnd(totalDeployed)}` +

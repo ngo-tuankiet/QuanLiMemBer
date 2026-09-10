@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import {
   Card,
@@ -43,6 +44,7 @@ export default async function TradeDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const user = await requirePagePermission('transaction.view');
+  const { t } = await getDict();
   const { id } = await params;
 
   const trade = await prisma.trade.findUnique({
@@ -359,7 +361,7 @@ export default async function TradeDetailPage({
                         <div className="mt-2 grid grid-cols-1 gap-2 text-tiny sm:grid-cols-2">
                           {before ? (
                             <div className="rounded-lg border border-down-500/20 bg-down-500/5 p-2.5">
-                              <p className="mb-1 font-medium text-down-500">BEFORE</p>
+                              <p className="mb-1 font-medium text-down-500">{t.page.before}</p>
                               <KeyValues data={before} changed={changed} />
                             </div>
                           ) : (
@@ -367,7 +369,7 @@ export default async function TradeDetailPage({
                           )}
                           {after ? (
                             <div className="rounded-lg border border-up-500/20 bg-up-500/5 p-2.5">
-                              <p className="mb-1 font-medium text-up-500">AFTER</p>
+                              <p className="mb-1 font-medium text-up-500">{t.page.after}</p>
                               <KeyValues data={after} changed={changed} />
                             </div>
                           ) : null}

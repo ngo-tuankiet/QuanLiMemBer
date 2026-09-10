@@ -1,10 +1,14 @@
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { Card, PageHeader } from '@/components/ui';
 import { SectorForms } from './SectorForms';
 
-export const metadata: Metadata = { title: 'Sectors' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.sectors };
+}
 
 /**
  * Ngành & phân ngành (§7, §15) — Phase 03.
@@ -15,6 +19,7 @@ export const metadata: Metadata = { title: 'Sectors' };
  */
 export default async function SectorsPage() {
   const user = await requirePagePermission('sector.view');
+  const { t } = await getDict();
 
   const sectors = await prisma.sector.findMany({
     orderBy: { sortOrder: 'asc' },
@@ -34,7 +39,7 @@ export default async function SectorsPage() {
   return (
     <>
       <PageHeader
-        title="Sectors"
+        title={t.nav.sectors}
         subtitle={`${sectors.length} ngành · ${totalIndustries} phân ngành · ${totalStocks} mã đã phân loại`}
       />
 
@@ -100,7 +105,7 @@ export default async function SectorsPage() {
 
       <p className="mt-4 max-w-3xl text-xs leading-relaxed text-slate-muted">
         Bộ ngành khởi tạo theo chuẩn GICS rút gọn, đặt tên tiếng Việt để hiển thị trực tiếp trên
-        Sector Exposure (§15). Khi Phase 07 đồng bộ danh mục mã từ VNStock, việc gán ngành cho mã
+        {t.dash.sectorExposure} (§15). Khi Phase 07 đồng bộ danh mục mã từ VNStock, việc gán ngành cho mã
         mới vẫn phải chọn từ cây này — hệ thống không tạo ngành tự động từ dữ liệu ngoài.
       </p>
     </>

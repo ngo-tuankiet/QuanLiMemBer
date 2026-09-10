@@ -358,6 +358,7 @@ model Stock {
   industry Industry? @relation(fields: [industryId], references: [id])
 
   trades       Trade[]
+  capitalFlows CapitalFlow[]
   quote        MarketQuote?
   priceHistory PriceHistory[]
 
@@ -437,17 +438,25 @@ model PortfolioAccess {
 /// Available Cash = Σ CapitalFlow (theo dấu) − Σ tiền chi mua + Σ tiền thu bán.
 /// Tiền của Trade KHÔNG ghi ở đây để tránh đếm trùng — nó được suy ra từ bảng Trade.
 model CapitalFlow {
-  id          String   @id @default(cuid())
+  id          String @id @default(cuid())
   portfolioId String
   /// CONTRIBUTION | WITHDRAWAL | DIVIDEND | INTEREST | OTHER_INCOME | OTHER_EXPENSE
   flowType    String
   /// Luôn là số dương, VNĐ. Chiều tiền suy ra từ flowType (xem src/lib/enums.ts).
   amount      BigInt
-  occurredAt  DateTime
-  reference   String?
-  note        String?
+
+  /// Mã cổ phiếu đã trả khoản này. CHỈ có nghĩa với `flowType = DIVIDEND`.
+  ///
+  /// NULL với mọi loại còn lại, và đó là mặc định: vốn nạp, lãi tiền gửi hay chi
+  /// khác không thuộc mã nào. Trước đây cổ tức cũng không gắn được mã, nên câu "mã
+  /// này đã mang về bao nhiêu" không trả lời được — tiền vào danh mục nhưng không
+  /// tra ngược được nguồn.
+  stockId    String?
+  occurredAt DateTime
+  reference  String?
+  note       String?
   /// PENDING | CONFIRMED | CANCELLED
-  status      String   @default("CONFIRMED")
+  status     String   @default("CONFIRMED")
 
   /// Nhóm được cấp riêng phần vốn này.
   ///
@@ -477,6 +486,7 @@ model CapitalFlow {
   portfolio     Portfolio      @relation(fields: [portfolioId], references: [id])
   team          Team?          @relation(fields: [teamId], references: [id])
   brokerAccount BrokerAccount? @relation(fields: [brokerAccountId], references: [id])
+  stock         Stock?         @relation(fields: [stockId], references: [id])
   createdBy     User           @relation("CapitalFlowCreatedBy", fields: [createdById], references: [id])
   approvedBy    User?          @relation("CapitalFlowApprovedBy", fields: [approvedById], references: [id])
 
@@ -628,6 +638,19 @@ model Trade {
   tax             BigInt @default(0)
 
   executedAt DateTime
+
+  /// Dòng này là CỔ TỨC BẰNG CỔ PHIẾU, không phải một lệnh mua thật.
+  ///
+  /// VÌ SAO GHI NHƯ MỘT LỆNH MUA GIÁ 0 thay vì thêm `transactionType` thứ ba:
+  /// trong mã nguồn có 53 chỗ rẽ nhánh theo `transactionType`, và 14 chỗ viết
+  /// dạng `=== BUY ? … : …` với nhánh còn lại NGẦM HIỂU là bán. Thêm loại thứ ba
+  /// sẽ khiến 14 chỗ đó âm thầm TRỪ khối lượng và tính tiền bán — sai số tiền mà
+  /// không có gì báo.
+  ///
+  /// Ghi là BUY giá 0 thì mọi nhánh sẵn có đều làm đúng phép tính: khối lượng
+  /// tăng, giá vốn cộng thêm 0, tiền không đổi — nên giá vốn TB giảm đúng theo tỷ
+  /// lệ chia. Cờ này chỉ để giao diện gọi đúng tên và để lọc khi cần.
+  isStockDividend Boolean @default(false)
 
   /// DRAFT | PENDING_APPROVAL | APPROVED | EXECUTED | REJECTED | CANCELLED
   status String @default("DRAFT")

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { requirePagePermission } from '@/auth/guards';
+import { getDict } from '@/i18n';
 import { prisma } from '@/lib/prisma';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { SettingForm } from './SettingForm';
@@ -8,7 +9,10 @@ import { SETTING_BOUNDS } from '@/settings/bounds';
 import { absoluteVi } from '@/lib/elapsed';
 import { SETTING_GROUP, type SettingGroup } from '@/lib/enums';
 
-export const metadata: Metadata = { title: 'Settings' };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getDict();
+  return { title: t.nav.settings };
+}
 
 /**
  * SETTINGS (§21) — Phase 10.
@@ -55,6 +59,7 @@ const GROUP_LABEL: Record<SettingGroup, { title: string; hint: string }> = {
 
 export default async function SettingsPage() {
   const user = await requirePagePermission('settings.view');
+  const { t } = await getDict();
   const canEdit = user.permissions.has('settings.update');
 
   const settings = await prisma.systemSetting.findMany({
@@ -77,10 +82,10 @@ export default async function SettingsPage() {
   return (
     <>
       <PageHeader
-        title="Settings"
+        title={t.nav.settings}
         subtitle={
           canEdit
-            ? `${settings.length} tham số · mọi thay đổi đều được ghi vào Audit Log`
+            ? `${settings.length} tham số · mọi thay đổi đều được ghi vào ${t.nav.auditLog}`
             : `${settings.length} tham số · cần quyền settings.update để sửa`
         }
       />
