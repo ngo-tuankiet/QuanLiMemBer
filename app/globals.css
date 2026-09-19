@@ -1,0 +1,523 @@
+@import 'tailwindcss';
+
+/* ==========================================================================
+   HỆ THỐNG MÀU HAI CHẾ ĐỘ
+
+   Cách đọc thang `ink-*`: nó xếp theo KHOẢNG CÁCH TỚI MẶT TRANG, không theo
+   độ tối. `ink-950` luôn là nền trang, `ink-900` luôn là mặt thẻ, `ink-700`
+   luôn là đường kẻ. Ở chế độ tối thang đi từ tối lên sáng; ở chế độ sáng nó
+   đảo chiều. Nhờ vậy toàn bộ component viết một lần dùng được cả hai chế độ —
+   `bg-ink-900` là "mặt thẻ" ở cả hai, không phải "màu xanh đen".
+
+   Chế độ tối KHÔNG phải phép đảo tự động của chế độ sáng: từng bậc được chọn
+   riêng và kiểm tra tương phản riêng trên đúng mặt nền của nó.
+
+   Mọi màu chữ đều đạt WCAG AA (≥ 4.5:1) trên mặt nền tương ứng — đã tính bằng
+   script, không ước lượng bằng mắt.
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* ------------------------------------------------------------------
+     BỀ MẶT NGÀ ẤM, KHÔNG PHẢI XÁM XANH.
+
+     Đây là điểm đổi lớn nhất của chế độ sáng. Nền xám ngả xanh (#f6f7f9) là
+     ngôn ngữ của phần mềm SaaS; giấy ngà ấm là ngôn ngữ của bản sao kê private
+     banking. Cùng một cấu trúc thẻ, đổi nhiệt độ nền là đổi hẳn cảm giác.
+
+     Thẻ vẫn TRẮNG TINH trên nền ngà, nên nó nổi lên mà không cần viền đậm hay
+     bóng đổ — "giấy đặt trên giấy". Đường kẻ vì vậy được kéo xuống mức chỉ vừa
+     đủ thấy (1,32:1), thay cho đường kẻ xám xanh rõ nét trước đây.
+     ------------------------------------------------------------------ */
+  --ink-950: #faf9f6; /* nền trang — ngà ấm */
+  --ink-900: #ffffff; /* mặt thẻ */
+  --ink-850: #f7f5f0; /* ô nhập, dòng hover */
+  --ink-800: #f0ede5; /* chip, vùng nổi */
+  --ink-700: #e4e0d6; /* đường kẻ mảnh */
+  --ink-600: #cec8ba; /* đường kẻ đậm */
+  --ink-500: #716a5b; /* chữ mờ nhất — 4.59:1 ở mặt nền khắt khe nhất (chip) */
+
+  /* Chữ — mực nâu-đen ấm, không phải đen ngả xanh */
+  --fg-strong: #1c1b18; /* tiêu đề, số liệu chính — 17.2:1 */
+  --fg-soft: #403c35; /* nội dung — 11.0:1 */
+  --fg-muted: #605a4e; /* nhãn, phụ đề — 6.8:1 */
+
+  /* ------------------------------------------------------------------
+     MÀU NHẤN LÀ XANH HẢI QUÂN, KHÔNG PHẢI XANH DƯƠNG TƯƠI.
+
+     #2563eb là màu nút "Đăng ký" của mọi trang web; #1e3a5f là màu bìa một bản
+     báo cáo danh mục. Cùng là xanh, nhưng một cái mời gọi bấm còn một cái nói
+     rằng con số bên trong đã được kiểm.
+
+     Xanh = tăng, đỏ = giảm vẫn theo quy ước bảng giá VN, chỉ trầm lại: sắc độ
+     cao gắt làm cả trang trông như bảng điện, không như bản sao kê.
+     ------------------------------------------------------------------ */
+  --accent: #1e3a5f;
+  --accent-strong: #16293f;
+  --accent-soft: #2d5182;
+  --up: #1b6b50;
+  --down: #a01722;
+  /*
+     BỐN MỨC NGHIÊM TRỌNG LÀ MỘT THANG CÓ THỨ TỰ, nên màu cũng phải có thứ tự:
+     vàng → cam → đỏ đi theo mức tăng dần. Đây không phải bốn màu phân loại được
+     chọn cho dễ phân biệt, mà là ba bậc trên cùng một dải ấm — người đọc hiểu
+     ngay cái nào gấp hơn mà không cần tra bảng chú giải.
+
+     Mức INFO cố tình KHÔNG có màu riêng: nó dùng màu chữ thường. Tô màu cho
+     thông tin không cần hành động sẽ làm loãng chính hai màu cần được để ý.
+  */
+  --warn: #8a6516;
+  --serious: #a1440f;
+  /* Khác `--series-7` (#5b4a9e) một cách có chủ đích: màu trạng thái không được
+     trùng màu phân loại, nếu không một lát bánh trong biểu đồ sẽ đọc thành "giá
+     trần". */
+  --ceiling: #6a3fa8;
+
+  /* ------------------------------------------------------------------
+     Bảng màu phân loại — 8 slot, THỨ TỰ CỐ ĐỊNH, không bao giờ xoay vòng.
+     Thứ tự chính là cơ chế an toàn cho người mù màu, không phải trang trí.
+
+     ĐÃ HẠ SẮC ĐỘ CHO HỢP PHONG CÁCH — và hoá ra còn dễ đọc hơn bản cũ. Chạy
+     validator trên đúng mặt nền của dự án:
+
+       cũ   4 PASS + 1 WARN  (aqua/vàng/hồng dưới 3:1, phải có nhãn bù)
+       mới  5 PASS           (cả 8 slot đều ≥ 3:1)
+
+     Không phải cứ trầm là mờ: hạ sắc độ kèm hạ độ sáng thì tương phản với nền
+     trắng TĂNG. Cặp sát nhau khó nhất là teal↔đất nung ΔE 9,5 (protan), trên
+     ngưỡng 8. Vẫn giữ nhãn trực tiếp làm lớp mã hoá thứ hai.
+     ------------------------------------------------------------------ */
+  --series-1: #2d6396; /* xanh hải quân */
+  --series-2: #c25f33; /* đất nung */
+  --series-3: #1f8f70; /* lục lam */
+  --series-4: #b4860f; /* vàng đồng */
+  --series-5: #c06b8c; /* hồng khô */
+  --series-6: #2e7d43; /* xanh lá trầm */
+  --series-7: #5b4a9e; /* tím */
+  --series-8: #b04440; /* đỏ gạch */
+
+  /* Lưới và trục — mảnh, lùi về sau, không bao giờ nét đứt */
+  --grid: #eeeae1;
+  --axis: #cec8ba;
+}
+
+/* Chế độ tối theo cài đặt hệ điều hành.
+   `:not([data-theme="light"])` để lựa chọn thủ công của người dùng luôn thắng. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --ink-950: #0a0d13;
+    --ink-900: #111621;
+    --ink-850: #161c28;
+    --ink-800: #1c2432;
+    --ink-700: #263043;
+    --ink-600: #33415a;
+    --ink-500: #77889f;
+
+    --fg-strong: #ffffff;
+    --fg-soft: #b9c6d9;
+    --fg-muted: #8b9bb4;
+
+    --accent: #60a5fa;
+    --accent-strong: #3b82f6;
+    --accent-soft: #93c5fd;
+    --up: #16c784;
+    --down: #f2555f;
+    --warn: #f0b90b;
+    --serious: #f98b3d;
+    --ceiling: #c084fc;
+
+    /* Cùng 8 sắc, bậc chọn lại cho mặt nền tối — không phải phép đảo tự động */
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+
+    --grid: #1e2735;
+    --axis: #33415a;
+  }
+}
+
+/* Người dùng chọn tối thủ công — thắng cả cài đặt hệ điều hành */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --ink-950: #0a0d13;
+  --ink-900: #111621;
+  --ink-850: #161c28;
+  --ink-800: #1c2432;
+  --ink-700: #263043;
+  --ink-600: #33415a;
+  --ink-500: #77889f;
+
+  --fg-strong: #ffffff;
+  --fg-soft: #b9c6d9;
+  --fg-muted: #8b9bb4;
+
+  --accent: #60a5fa;
+  --accent-strong: #3b82f6;
+  --accent-soft: #93c5fd;
+  --up: #16c784;
+  --down: #f2555f;
+  --warn: #f0b90b;
+  --serious: #f98b3d;
+  --ceiling: #c084fc;
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+
+  --grid: #1e2735;
+  --axis: #33415a;
+}
+
+/* ==========================================================================
+   Nối token vào Tailwind.
+   `inline` để Tailwind phát ra `var(--…)` thay vì sao chép giá trị — đó là
+   điều kiện để đổi chủ đề mà không cần build lại CSS.
+   ========================================================================== */
+
+@theme inline {
+  --color-ink-950: var(--ink-950);
+  --color-ink-900: var(--ink-900);
+  --color-ink-850: var(--ink-850);
+  --color-ink-800: var(--ink-800);
+  --color-ink-700: var(--ink-700);
+  --color-ink-600: var(--ink-600);
+  --color-ink-500: var(--ink-500);
+
+  --color-strong: var(--fg-strong);
+  --color-slate-soft: var(--fg-soft);
+  --color-slate-muted: var(--fg-muted);
+
+  --color-accent-400: var(--accent);
+  --color-accent-500: var(--accent-soft);
+  --color-accent-600: var(--accent-strong);
+
+  --color-up-500: var(--up);
+  --color-down-500: var(--down);
+  --color-warn-500: var(--warn);
+  --color-serious-500: var(--serious);
+  --color-ceiling-500: var(--ceiling);
+
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-series-3: var(--series-3);
+  --color-series-4: var(--series-4);
+  --color-series-5: var(--series-5);
+  --color-series-6: var(--series-6);
+  --color-series-7: var(--series-7);
+  --color-series-8: var(--series-8);
+
+  --color-grid: var(--grid);
+  --color-axis: var(--axis);
+
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', 'Inter', 'Noto Sans', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'Cascadia Mono', 'Consolas', monospace;
+}
+
+/* ==========================================================================
+   Nền tảng
+   ========================================================================== */
+
+html {
+  background-color: var(--ink-950);
+}
+
+body {
+  background-color: var(--ink-950);
+  color: var(--fg-soft);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Số liệu tài chính dùng chữ số đẳng khoảng để các cột thẳng hàng.
+ * CHỈ dùng cho bảng và nhãn trục — số lớn đứng một mình (KPI, hero) phải dùng
+ * chữ số tỷ lệ, vì đẳng khoảng làm số lớn trông rời rạc.
+ */
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* Số KPI lớn: cùng font sans, chữ số tỷ lệ */
+.hero-figure {
+  font-family: var(--font-sans);
+  font-variant-numeric: proportional-nums;
+  letter-spacing: -0.02em;
+}
+
+::selection {
+  background-color: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-600) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--ink-600);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-500);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Tôn trọng người dùng đã tắt hiệu ứng chuyển động */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==========================================================================
+   Lớp tiện dụng
+   ========================================================================== */
+
+@utility card {
+  background-color: var(--ink-900);
+  border: 1px solid var(--ink-700);
+  border-radius: 0.75rem;
+}
+
+@utility field {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid var(--ink-600);
+  background-color: var(--ink-850);
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--fg-strong);
+
+  /*
+   * 16px TRÊN MÀN HẸP — CHỐNG SAFARI iOS TỰ PHÓNG TO.
+   *
+   * Safari trên iOS phóng cả trang khi người dùng bấm vào một ô nhập có cỡ chữ DƯỚI
+   * 16px, và không tự thu lại. Với 14px, mọi ô nhập của app — nạp vốn, nhập lệnh,
+   * đăng nhập — đều gây ra cú giật đó. Đây không phải chuyện thẩm mỹ: sau khi phóng,
+   * trang rộng hơn màn hình và người dùng phải tự kéo ngang để thấy nút gửi.
+   *
+   * 2.75rem = 44px, ngưỡng vùng bấm tối thiểu.
+   */
+  @media (width < 40rem) {
+    font-size: 1rem;
+    min-height: 2.75rem;
+  }
+}
+
+/*
+ * HAI CỠ CHỮ NHỎ NHẤT, KHAI Ở ĐÚNG MỘT CHỖ.
+ *
+ * Trước đây là `text-[10px]` và `text-[11px]` rải trên 203 chỗ trong mã nguồn. Hai
+ * vấn đề: (1) trên điện thoại 10–11px là cỡ phải nheo mắt, (2) muốn đổi thì phải sửa
+ * 203 chỗ nên trên thực tế sẽ không ai đổi.
+ *
+ * Trên màn hẹp cả hai về cùng 12px. Có mất một bậc phân cấp, nhưng khoảng cách 10px
+ * so với 11px trên điện thoại vốn đã không nhìn ra — giữ một phân cấp vô hình mà đánh
+ * đổi bằng việc đọc không nổi là đổi ngược.
+ */
+@utility text-micro {
+  font-size: 10px;
+  @media (width < 40rem) {
+    font-size: 12px;
+  }
+}
+
+@utility text-tiny {
+  font-size: 11px;
+  @media (width < 40rem) {
+    font-size: 12px;
+  }
+}
+
+@utility field-label {
+  display: block;
+  margin-bottom: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+/* ==========================================================================
+   Biểu đồ SVG
+   Được render ở SERVER, không cần JavaScript. Tooltip dùng <title> gốc của
+   SVG nên hoạt động cả khi tắt JS và đọc được bằng trình đọc màn hình.
+   ========================================================================== */
+
+.chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+/* Lưới và trục: nét LIỀN, mảnh, lùi về sau. Không bao giờ nét đứt —
+   nét đứt đọc thành "dự phóng" hoặc "ngưỡng" trong khi nó chỉ là lưới. */
+.chart-grid line {
+  stroke: var(--grid);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.chart-axis {
+  stroke: var(--axis);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.chart-label {
+  fill: var(--fg-muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Đường: 2px, đầu bo tròn */
+.chart-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Điểm mốc ≥ 8px, có vòng nền 2px để không dính vào nhau khi chồng lấp */
+.chart-dot {
+  stroke: var(--ink-900);
+  stroke-width: 2;
+}
+
+/* Vùng hover rộng hơn dấu vẽ — không bắt người dùng nhắm chính xác */
+.chart-hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+.chart-hit:hover + .chart-hover-mark,
+.chart-hit:focus-visible + .chart-hover-mark {
+  opacity: 1;
+}
+.chart-hover-mark {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s;
+}
+
+/* Vành donut: khe 2px giữa các phần bằng chính màu nền, không vẽ viền */
+.donut-segment {
+  transition: opacity 0.15s;
+}
+.donut:hover .donut-segment {
+  opacity: 0.45;
+}
+.donut .donut-segment:hover {
+  opacity: 1;
+}
+
+/* ==========================================================================
+   Màn hình hẹp: vùng bấm tối thiểu
+   ==========================================================================
+
+   Đo trên thiết bị ảo 375px trước khi sửa: trang Dashboard có 43 trong 44 phần tử
+   bấm được CAO DƯỚI 44px, phần lớn quanh 28–32px. Nguyên nhân là mọi nút đều dùng
+   `py-1`/`py-1.5` — thừa sức ở chuột, thiếu hẳn ở ngón tay.
+
+   Đặt ở đây thay vì sửa từng nút: các nút nằm rải khắp app và một quy tắc chung thì
+   không bỏ sót cái nào. Chỉ áp cho phần tử ĐIỀU KHIỂN — link chữ trong câu vẫn giữ
+   nguyên, vì nhồi một link inline lên 44px sẽ phá nhịp dòng văn.
+
+   Ô chọn và ô nhập cũng lên 16px cùng lý do với `field` ở trên: dưới 16px là Safari
+   iOS phóng trang.
+   ========================================================================== */
+
+@media (width < 40rem) {
+  button,
+  select,
+  [type='text'],
+  [type='number'],
+  [type='email'],
+  [type='password'],
+  [type='date'],
+  [type='search'],
+  textarea {
+    min-height: 2.75rem;
+  }
+
+  select,
+  [type='text'],
+  [type='number'],
+  [type='email'],
+  [type='password'],
+  [type='date'],
+  [type='search'],
+  textarea {
+    font-size: 1rem;
+  }
+
+  /*
+   * Ô tick giữ nguyên kích thước hình, chỉ nới vùng bấm quanh nó — kéo chính cái ô
+   * lên 44px sẽ thành một hình vuông to bất thường giữa dòng.
+   */
+  [type='checkbox'],
+  [type='radio'] {
+    min-height: 1.25rem;
+  }
+
+  /*
+   * VÙNG BẤM THẬT CỦA Ô TICK LÀ CÁI NHÃN.
+   *
+   * Bấm vào `<label>` bao quanh cũng đổi trạng thái ô tick, nên nhãn mới là thứ ngón
+   * tay nhắm vào — và đo được là nó chỉ cao 30px. Nới nhãn thay vì nới ô giữ được
+   * hình vuông đúng cỡ mà vẫn đạt 44px.
+   *
+   * `:has()` để chỉ chạm tới nhãn CÓ ô tick bên trong; nhãn của ô nhập chữ đã cao
+   * sẵn nhờ chính ô đó.
+   */
+  label:has([type='checkbox']),
+  label:has([type='radio']) {
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+  }
+
+  /*
+   * Mục menu trong drawer di động.
+   *
+   * Chỉ trong `.nav-touch`, không phải mọi thẻ `a`: một link nằm giữa câu văn mà bị
+   * nhồi lên 44px sẽ phá nhịp dòng. Ở menu thì mỗi mục là một hàng riêng nên nới cao
+   * là đúng — đo được 22 mục đều đang ở 36px.
+   */
+  .nav-touch a {
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+  }
+}
