@@ -55,11 +55,15 @@ export async function createSession(
     },
   });
 
+  const isSecure =
+    process.env.COOKIE_SECURE === 'true' ||
+    Boolean(process.env.NEXT_PUBLIC_APP_URL?.startsWith('https://'));
+
   const store = await cookies();
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecure,
     path: '/',
     expires: expiresAt,
   });

@@ -41,7 +41,7 @@ interface MenuEntry {
   icon?: IconName;
   /** Nhãn phase nếu chưa triển khai. */
   phase?: string;
-  children?: { labelKey: keyof Dict['nav']; href?: string; phase?: string }[];
+  children?: { labelKey: keyof Dict['nav']; href?: string; phase?: string; permission?: string }[];
 }
 
 /**
@@ -67,9 +67,9 @@ const MENU: readonly MenuEntry[] = [
     permission: 'portfolio.view',
     icon: 'portfolio',
     children: [
-      { labelKey: 'overview', href: '/portfolio' },
-      { labelKey: 'positions', href: '/portfolio/positions' },
-      { labelKey: 'allocation', href: '/portfolio/allocation' },
+      { labelKey: 'overview', href: '/portfolio', permission: 'portfolio.view' },
+      { labelKey: 'positions', href: '/portfolio/positions', permission: 'position.view' },
+      { labelKey: 'allocation', href: '/portfolio/allocation', permission: 'portfolio.view' },
     ],
   },
   {
@@ -78,10 +78,10 @@ const MENU: readonly MenuEntry[] = [
     permission: 'transaction.view',
     icon: 'transactions',
     children: [
-      { labelKey: 'allTransactions', href: '/transactions' },
-      { labelKey: 'buy', href: '/transactions?type=BUY' },
-      { labelKey: 'sell', href: '/transactions?type=SELL' },
-      { labelKey: 'dividend', href: '/transactions/dividend' },
+      { labelKey: 'allTransactions', href: '/transactions', permission: 'transaction.view' },
+      { labelKey: 'buy', href: '/transactions?type=BUY', permission: 'transaction.view' },
+      { labelKey: 'sell', href: '/transactions?type=SELL', permission: 'transaction.view' },
+      { labelKey: 'dividend', href: '/transactions/dividend', permission: 'transaction.view' },
     ],
   },
   { labelKey: 'strategies', href: '/strategies', permission: 'strategy.view', icon: 'strategies' },
@@ -91,8 +91,8 @@ const MENU: readonly MenuEntry[] = [
     permission: 'stock.view',
     icon: 'market',
     children: [
-      { labelKey: 'sectors', href: '/market/sectors' },
-      { labelKey: 'marketData', href: '/market/market-data' },
+      { labelKey: 'sectors', href: '/market/sectors', permission: 'sector.view' },
+      { labelKey: 'marketData', href: '/market/market-data', permission: 'market_data.view' },
     ],
   },
   { labelKey: 'risk', href: '/risk', permission: 'risk.view', icon: 'risk' },
@@ -144,7 +144,14 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
     const v = t.nav[k];
     return typeof v === 'string' ? v : String(v);
   };
-  const visible = MENU.filter((item) => user.permissions.has(item.permission));
+  const visible = MENU
+    .filter((item) => user.permissions.has(item.permission))
+    .map((item) => {
+      const children = item.children?.filter(
+        (child) => !child.permission || user.permissions.has(child.permission),
+      );
+      return { ...item, children };
+    });
   const adminVisible = ADMIN_MENU.filter((item) => user.permissions.has(item.permission));
 
   // Trạng thái nguồn giá hiện lên mọi trang (§10) — người dùng phải biết ngay khi
