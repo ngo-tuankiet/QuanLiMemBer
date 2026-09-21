@@ -29,7 +29,11 @@ const ROI = ['VN30', 'VN100'] as const;
 
 function layRoTuNguon(): Record<string, string[]> | null {
   const cwd = path.join(process.cwd(), 'services', 'market-data');
-  const python = path.join(cwd, '.venv', 'Scripts', 'python.exe');
+  const venvWin = path.join(cwd, '.venv', 'Scripts', 'python.exe');
+  const venvUnix = path.join(cwd, '.venv', 'bin', 'python');
+  const python = process.platform === 'win32'
+    ? (existsSync(venvWin) ? venvWin : venvUnix)
+    : (existsSync(venvUnix) ? venvUnix : venvWin);
 
   if (!existsSync(python)) {
     console.log(`Chưa có venv tại ${path.relative(process.cwd(), python)} — bỏ qua.`);

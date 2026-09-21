@@ -177,10 +177,22 @@ const SYNC_TIMEOUT_SECONDS = Number(process.env.MARKET_DATA_SYNC_TIMEOUT ?? '180
 /** Đường dẫn tới interpreter của venv và thư mục service. */
 function duongDanService(): { python: string; cwd: string } {
   const cwd = path.join(process.cwd(), 'services', 'market-data');
-  return {
-    python: path.join(cwd, '.venv', 'Scripts', 'python.exe'),
-    cwd,
-  };
+  const envPython = process.env.MARKET_DATA_PYTHON_PATH || process.env.PYTHON_PATH;
+  if (envPython && existsSync(envPython)) {
+    return { python: envPython, cwd };
+  }
+
+  const venvWin = path.join(cwd, '.venv', 'Scripts', 'python.exe');
+  const venvUnix = path.join(cwd, '.venv', 'bin', 'python');
+
+  let python = venvWin;
+  if (process.platform === 'win32') {
+    python = existsSync(venvWin) ? venvWin : (existsSync(venvUnix) ? venvUnix : venvWin);
+  } else {
+    python = existsSync(venvUnix) ? venvUnix : (existsSync(venvWin) ? venvWin : venvUnix);
+  }
+
+  return { python, cwd };
 }
 
 /**
@@ -325,11 +337,14 @@ async function dongBoGia(
   const { python, cwd } = duongDanService();
 
   if (!existsSync(python)) {
+    const huongDan = process.platform === 'win32'
+      ? 'python -m venv .venv rồi .venv\\Scripts\\python.exe -m pip install -r requirements.txt'
+      : 'python3 -m venv .venv && .venv/bin/pip install -r requirements.txt';
     return {
       ok: false,
       message:
         `Chưa có môi trường Python tại ${path.relative(process.cwd(), python)}. ` +
-        'Tạo bằng: python -m venv .venv rồi .venv\\Scripts\\python.exe -m pip install -r requirements.txt ' +
+        `Tạo bằng: ${huongDan} ` +
         '(trong services/market-data).',
     };
   }
