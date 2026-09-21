@@ -178,18 +178,27 @@ const SYNC_TIMEOUT_SECONDS = Number(process.env.MARKET_DATA_SYNC_TIMEOUT ?? '180
 function duongDanService(): { python: string; cwd: string } {
   const cwd = path.join(process.cwd(), 'services', 'market-data');
   const envPython = process.env.MARKET_DATA_PYTHON_PATH || process.env.PYTHON_PATH;
-  if (envPython && existsSync(envPython)) {
+  if (envPython && existsSync(/*turbopackIgnore: true*/ envPython)) {
     return { python: envPython, cwd };
   }
 
   const venvWin = path.join(cwd, '.venv', 'Scripts', 'python.exe');
   const venvUnix = path.join(cwd, '.venv', 'bin', 'python');
+  const vpsVenv = '/var/www/market-data-venv/bin/python';
 
   let python = venvWin;
   if (process.platform === 'win32') {
-    python = existsSync(venvWin) ? venvWin : (existsSync(venvUnix) ? venvUnix : venvWin);
+    python = existsSync(/*turbopackIgnore: true*/ venvWin)
+      ? venvWin
+      : (existsSync(/*turbopackIgnore: true*/ venvUnix) ? venvUnix : venvWin);
   } else {
-    python = existsSync(venvUnix) ? venvUnix : (existsSync(venvWin) ? venvWin : venvUnix);
+    if (existsSync(/*turbopackIgnore: true*/ vpsVenv)) {
+      python = vpsVenv;
+    } else if (existsSync(/*turbopackIgnore: true*/ venvUnix)) {
+      python = venvUnix;
+    } else {
+      python = existsSync(/*turbopackIgnore: true*/ venvWin) ? venvWin : venvUnix;
+    }
   }
 
   return { python, cwd };
@@ -336,7 +345,7 @@ async function dongBoGia(
 ): Promise<ActionResult> {
   const { python, cwd } = duongDanService();
 
-  if (!existsSync(python)) {
+  if (!existsSync(/*turbopackIgnore: true*/ python)) {
     const huongDan = process.platform === 'win32'
       ? 'python -m venv .venv rồi .venv\\Scripts\\python.exe -m pip install -r requirements.txt'
       : 'python3 -m venv .venv && .venv/bin/pip install -r requirements.txt';
@@ -865,7 +874,7 @@ async function traNguon(symbol: string): Promise<{ tin: ThongTinNguon | null } |
   if (nho && Date.now() - nho.luc < BO_NHO_MS) return { tin: nho.tin };
 
   const { python, cwd } = duongDanService();
-  if (!existsSync(python)) {
+  if (!existsSync(/*turbopackIgnore: true*/ python)) {
     return {
       loi:
         `Chưa có môi trường Python tại ${path.relative(process.cwd(), python)} — ` +

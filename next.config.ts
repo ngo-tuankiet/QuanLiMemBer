@@ -17,6 +17,10 @@ const nextConfig: NextConfig = {
   // bcryptjs và Prisma là mã Node thuần — không được để bundler kéo vào client.
   serverExternalPackages: ['@prisma/client', 'bcryptjs'],
 
+  outputFileTracingExcludes: {
+    '*': ['./services/**', '**/.venv/**'],
+  },
+
   // Ẩn header tiết lộ framework.
   poweredByHeader: false,
 
