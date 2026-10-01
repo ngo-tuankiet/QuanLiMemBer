@@ -41,7 +41,7 @@ interface MenuEntry {
   icon?: IconName;
   /** Nhãn phase nếu chưa triển khai. */
   phase?: string;
-  children?: { labelKey: keyof Dict['nav']; href?: string; phase?: string }[];
+  children?: { labelKey: keyof Dict['nav']; href?: string; phase?: string; permission?: string }[];
 }
 
 /**
@@ -151,7 +151,14 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
     const v = t.nav[k];
     return typeof v === 'string' ? v : String(v);
   };
-  const visible = MENU.filter((item) => user.permissions.has(item.permission));
+  const visible = MENU
+    .filter((item) => user.permissions.has(item.permission))
+    .map((item) => {
+      const children = item.children?.filter(
+        (child) => !child.permission || user.permissions.has(child.permission),
+      );
+      return { ...item, children };
+    });
   const adminVisible = ADMIN_MENU.filter((item) => user.permissions.has(item.permission));
 
   // Trạng thái nguồn giá hiện lên mọi trang (§10) — người dùng phải biết ngay khi

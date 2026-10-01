@@ -320,6 +320,7 @@ const MEMBER_PERMISSIONS: readonly string[] = [
   'transaction.view',
   'strategy.view',
   'stock.view',
+  'sector.view',
   'market_data.view',
 ];
 
