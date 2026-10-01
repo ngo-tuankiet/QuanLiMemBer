@@ -1,0 +1,24 @@
+{
+  // ==========================================================================
+  // Cấu hình TypeScript CHO CÁC SCRIPT CHẠY NGOÀI NEXT.JS
+  //
+  // Vì sao cần file riêng: `src/domain/portfolio-engine.ts` và `src/risk/scan.ts`
+  // mở đầu bằng `import 'server-only'` — một gói của Next.js dùng để chặn code
+  // server lọt vào bundle client. Nó chỉ giải được trong quá trình build của
+  // Next; chạy thẳng bằng `tsx` sẽ báo "Cannot find module 'server-only'".
+  //
+  // Cách xử lý: trỏ tên gói đó vào chính module rỗng mà Next dùng cho phía
+  // server. Không đụng tới `tsconfig.json` của ứng dụng, nên chốt an toàn của
+  // `server-only` vẫn nguyên vẹn khi build thật.
+  //
+  // Dùng: TSX_TSCONFIG_PATH=tsconfig.scripts.json npx tsx scripts/<tên>.ts
+  // Các script trong package.json đã cài sẵn biến này.
+  // ==========================================================================
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "server-only": ["./node_modules/next/dist/compiled/server-only/empty.js"]
+    }
+  }
+}

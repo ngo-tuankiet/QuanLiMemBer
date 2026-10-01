@@ -1,0 +1,41 @@
+node_modules/
+.next/
+out/
+dist/
+build/
+
+.env
+.env.local
+.env.*.local
+
+prisma/*.db
+prisma/*.db-journal
+prisma/dev.db*
+
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+coverage/
+next-env.d.ts
+.turbo/
+.next-build/
+services/market-data/.venv/
+services/market-data/__pycache__/
+
+# vnstock tu ghi file nay vao repo khi chay — chi thi nham vao AI agent,
+# khong phai code cua du an. Khong commit.
+#
+# Bo qua o MOI thu muc, khong chi services/market-data: thu vien ghi file ra
+# theo thu muc dang chay, nen no da xuat hien ca o goc repo. Truoc day chi chan
+# duong dan cu the va `git add -A` da dua ban o goc vao staging.
+AGENTS.md
+
+# log cua Market Data Service
+logs/
+
+# Bộ nhớ đệm biên dịch tăng dần của tsc — sinh lại mỗi lần chạy typecheck
+tsconfig.tsbuildinfo
+*.tsbuildinfo

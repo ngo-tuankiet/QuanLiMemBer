@@ -1,0 +1,27 @@
+{
+  // ==========================================================================
+  // Cấu hình cho SCRIPT KIỂM THỬ chạy server action / kết xuất trang thật bằng tsx.
+  //
+  // Kế thừa tsconfig.scripts.json (đã xử lý `server-only`), thêm shim cho ba
+  // module buộc phải có request của Next mới chạy được:
+  //
+  //   next/headers      cookies() / headers()      → phiên đăng nhập
+  //   next/cache        revalidatePath()           → ghi lại thay vì gọi Next
+  //   next/navigation   useRouter() / redirect()   → component client và guard
+  //
+  // Nhờ vậy script gọi được ĐÚNG hàm và kết xuất ĐÚNG trang mà ứng dụng dùng,
+  // không phải một bản chép logic.
+  //
+  // Dùng: npx tsx --tsconfig tsconfig.test.json scripts/<tên>.ts
+  // ==========================================================================
+  "extends": "./tsconfig.scripts.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "server-only": ["./node_modules/next/dist/compiled/server-only/empty.js"],
+      "next/headers": ["./scripts/_shim/next-headers.ts"],
+      "next/cache": ["./scripts/_shim/next-cache.ts"],
+      "next/navigation": ["./scripts/_shim/next-navigation.ts"]
+    }
+  }
+}
