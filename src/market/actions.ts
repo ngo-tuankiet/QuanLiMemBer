@@ -184,6 +184,7 @@ function duongDanService(): { python: string; cwd: string } {
     return { python: envPython, cwd };
   }
 
+  const vpsVenv = '/var/www/market-data-venv/bin/python';
   const venvWin = path.join(cwd, '.venv', 'Scripts', 'python.exe');
   const venvUnix = path.join(cwd, '.venv', 'bin', 'python');
 
@@ -193,9 +194,13 @@ function duongDanService(): { python: string; cwd: string } {
       ? venvWin
       : (existsSync(/*turbopackIgnore: true*/ venvUnix) ? venvUnix : venvWin);
   } else {
-    python = existsSync(/*turbopackIgnore: true*/ venvUnix)
-      ? venvUnix
-      : (existsSync(/*turbopackIgnore: true*/ venvWin) ? venvWin : venvUnix);
+    if (existsSync(/*turbopackIgnore: true*/ vpsVenv)) {
+      python = vpsVenv;
+    } else if (existsSync(/*turbopackIgnore: true*/ venvUnix)) {
+      python = venvUnix;
+    } else {
+      python = existsSync(/*turbopackIgnore: true*/ venvWin) ? venvWin : venvUnix;
+    }
   }
 
   return { python, cwd };
