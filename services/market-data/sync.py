@@ -285,6 +285,10 @@ def cmd_check() -> int:
         f"  Chốt giá đóng cửa    : {CONFIG.session_end_hour:02d}:00:"
         f"{CONFIG.close_delay_seconds:02d} (giờ đóng cửa + {CONFIG.close_delay_seconds}s), 1 lần/ngày"
     )
+    if CONFIG.closing_history_days > 0:
+        print(f"  Nạp lịch sử chốt phiên: có ({CONFIG.closing_history_days} ngày gần nhất, giá + VNINDEX)")
+    else:
+        print("  Nạp lịch sử chốt phiên: tắt (MARKET_DATA_CLOSING_HISTORY_DAYS=0)")
     if CONFIG.ignore_trading_hours:
         print("  LƯU Ý                : MARKET_DATA_IGNORE_HOURS đang bật —")
         print("                         chạy mọi lúc và KHÔNG có lần chốt phiên riêng.")
@@ -504,6 +508,40 @@ def cmd_quotes(loop: bool, only_symbols: list[str] | None = None) -> int:
                 # Chỉ đánh dấu đã chốt phiên khi việc nạp THÀNH CÔNG. Nếu đánh dấu
                 # trước, một lần lỗi mạng sẽ làm mất giá đóng cửa của cả ngày.
                 last_close_date = now.date()
+
+                # --------------------------------------------------------------
+                # TỰ ĐỘNG NẠP LỊCH SỬ GIÁ & VN-INDEX VÀO LƯỢT CHỐT PHIÊN
+                #
+                # Vòng lặp nền `quotes --loop` chỉ cập nhật giá hiện tại (`market_quotes`),
+                # không ghi vào `price_history` hay `market_index_history`. Nếu không nạp
+                # lịch sử, sau vài ngày các biểu đồ danh mục và ô Alpha sẽ bị thiếu dữ liệu
+                # kể từ ngày nạp tay cuối cùng.
+                #
+                # Nạp vài phiên gần nhất (mặc định 7 ngày) vào mỗi 15:00:
+                #   - Đủ để bù thứ Bảy/Chủ nhật hoặc các kỳ nghỉ lễ dài ngày.
+                #   - Tự động ghi đè/cập nhật phiên hôm nay và các phiên gần đây.
+                #   - Chỉ mất ~1-2 phút gọi nguồn mỗi ngày, không bao giờ phải chạy tay nữa.
+                # --------------------------------------------------------------
+                if CONFIG.closing_history_days > 0:
+                    print(
+                        f"[{now:%H:%M:%S}] chốt phiên: tự động nạp lịch sử VN-Index và giá OHLCV "
+                        f"({CONFIG.closing_history_days} ngày gần nhất)..."
+                    )
+                    try:
+                        cmd_index(CONFIG.closing_history_days)
+                    except Exception as exc:
+                        print(
+                            f"[{now:%H:%M:%S}] chốt phiên: nạp chỉ số VN-Index thất bại: "
+                            f"{type(exc).__name__}: {exc}"
+                        )
+
+                    try:
+                        cmd_history(CONFIG.closing_history_days, toan_bo=False)
+                    except Exception as exc:
+                        print(
+                            f"[{now:%H:%M:%S}] chốt phiên: nạp lịch sử giá thất bại: "
+                            f"{type(exc).__name__}: {exc}"
+                        )
         except urllib.error.HTTPError as exc:
             print(f"[{now:%H:%M:%S}] nạp thất bại HTTP {exc.code}: {exc.read().decode('utf-8', 'replace')[:300]}")
             if not loop:

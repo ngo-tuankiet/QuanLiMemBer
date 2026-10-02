@@ -102,6 +102,9 @@ class Config:
     # giá khớp bằng 0 và phải lùi về giá tham chiếu — mất chính giá quan trọng nhất
     # trong ngày. Tăng con số này nếu thấy log báo nhiều mã dùng giá tham chiếu.
     close_delay_seconds: int = field(default_factory=lambda: _int("MARKET_CLOSE_DELAY_SECONDS", 30))
+    # Số ngày lịch sử nạp tự động vào lượt chốt phiên mỗi ngày (mặc định 7 ngày).
+    # Đủ để bù các ngày nghỉ cuối tuần hoặc lễ mà không tốn nhiều hạn mức gọi nguồn.
+    closing_history_days: int = field(default_factory=lambda: _int("MARKET_DATA_CLOSING_HISTORY_DAYS", 7))
     ignore_trading_hours: bool = field(
         default_factory=lambda: os.environ.get("MARKET_DATA_IGNORE_HOURS", "").lower() in {"1", "true", "yes"}
     )

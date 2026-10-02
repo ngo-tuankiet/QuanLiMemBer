@@ -105,6 +105,8 @@ Chạy liên tục theo chu kỳ (tự nghỉ ngoài giờ giao dịch):
 python sync.py quotes --loop
 ```
 
+> **Tự động nạp lịch sử chốt phiên**: Vào lượt chốt phiên lúc 15:00 (+ độ trễ cấu hình) mỗi ngày làm việc, tiến trình không chỉ nạp giá đóng cửa (`market_quotes`) mà còn **tự động nạp lịch sử giá (OHLCV) và chỉ số VN-Index của 7 ngày gần nhất** (`price_history` và `market_index_history`). Nhờ vậy, ô chỉ số Alpha và biểu đồ danh mục luôn có dữ liệu đầy đủ mỗi ngày mà không cần chạy tay `sync.py history` hay `sync.py index` nữa. Tuỳ chỉnh số ngày qua `MARKET_DATA_CLOSING_HISTORY_DAYS` (mặc định 7 ngày, đặt 0 để tắt).
+
 Lấy lịch sử OHLCV cho biểu đồ hiệu suất:
 
 ```bash
