@@ -40,6 +40,7 @@ import AllocationPage from '../app/(app)/portfolio/allocation/page';
 import StrategiesPage from '../app/(app)/strategies/page';
 import TeamsPage from '../app/(app)/teams/page';
 import ReportsPage from '../app/(app)/reports/page';
+import MemberPage from '../app/(app)/members/[id]/page';
 import TradeDetailPage from '../app/(app)/transactions/[id]/page';
 import PositionsPage from '../app/(app)/portfolio/positions/page';
 
@@ -392,6 +393,51 @@ async function main(): Promise<void> {
     kiem(von.rows.length === soDong, `CSV dòng vốn chỉ gồm ${soDong} dòng của tài khoản mình`);
     const html = await mo(thucThi.id, ReportsPage, {});
     kiem(html.includes('phần của bạn'), 'trang Báo cáo nói rõ "phần của bạn"');
+  }
+
+  console.log('\n13. "Giá trị từng tài khoản" trên trang thành viên — theo vai trò');
+  {
+    const KHOI = 'Giá trị từng tài khoản';
+    const coTk = await prisma.brokerAccount.count({ where: { userId: thucThi.id } });
+    if (coTk === 0) {
+      console.log('  BOQUA: người thực thi chưa có tài khoản chứng khoán');
+    } else {
+      const trang = (viewerId: string) =>
+        mo(viewerId, MemberPage, { params: Promise.resolve({ id: thucThi.id }) });
+
+      kiem((await trang(thucThi.id)).includes(KHOI), 'chính chủ thấy');
+      if (quanLyNhom) kiem((await trang(quanLyNhom.id)).includes(KHOI), 'quản lý cùng nhóm thấy');
+      kiem((await trang(capCao.id)).includes(KHOI), 'quản lý cấp cao thấy');
+      kiem((await trang(admin.id)).includes(KHOI), 'admin thấy');
+
+      const qlNhomKhac = await prisma.user.findFirst({
+        where: {
+          role: { code: ROLE.TEAM_MANAGER },
+          status: USER_STATUS.ACTIVE,
+          teamId: { not: thucThi.teamId },
+        },
+        select: { id: true },
+      });
+      if (qlNhomKhac) {
+        await prisma.user.update({ where: { id: qlNhomKhac.id }, data: { mustChangePassword: false } });
+        kiem((await trang(qlNhomKhac.id)) === 'FORBIDDEN', 'quản lý NHÓM KHÁC không mở được trang');
+      }
+      const dongDoiTT = await prisma.user.findFirst({
+        where: {
+          role: { code: ROLE.EXECUTION },
+          status: USER_STATUS.ACTIVE,
+          teamId: thucThi.teamId,
+          id: { not: thucThi.id },
+        },
+        select: { id: true },
+      });
+      if (dongDoiTT) {
+        await prisma.user.update({ where: { id: dongDoiTT.id }, data: { mustChangePassword: false } });
+        kiem((await trang(dongDoiTT.id)) === 'FORBIDDEN', 'người thực thi cùng nhóm không mở được trang');
+      }
+      // Chỉ XEM: người khác không có form nạp/rút trên tài khoản của chủ.
+      kiem(!(await trang(capCao.id)).includes('Nạp / rút tiền'), 'người xem không có cột nạp/rút');
+    }
   }
 
   console.log(`\n${dat} dat / ${truot} truot`);

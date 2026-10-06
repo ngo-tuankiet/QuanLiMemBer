@@ -123,7 +123,7 @@ export function MobileNav({ children }: { children: ReactNode }) {
             người dùng thấy ngay là mình đang ở một lớp phủ tạm và bấm ra ngoài được.
             Full-screen trông như đã điều hướng sang một trang khác.
           */}
-          <div className="relative flex w-[17rem] max-w-[85vw] flex-col border-r border-ink-800 bg-ink-900 shadow-2xl">
+          <div className="chrome relative flex w-[17rem] max-w-[85vw] flex-col border-r border-ink-800 bg-ink-900 shadow-2xl">
             <div className="flex items-center justify-between border-b border-ink-800 px-4 py-3">
               <span className="text-tiny font-semibold tracking-[0.16em] text-accent-400">
                 {BRAND_NAME_UPPER}

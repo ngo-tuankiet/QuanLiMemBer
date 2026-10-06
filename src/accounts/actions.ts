@@ -42,6 +42,7 @@ import type { Prisma } from '@prisma/client';
 import { brokerAccountSchema, depositSchema, openingStateSchema } from '@/domain/validation';
 import { computeAccountBalances } from '@/domain/portfolio-engine';
 import { kiemDongTaiKhoan, lyDoChuaDong } from '@/accounts/close-rules';
+import { docVonBanDau, laCapVonBanDau, maVonBanDau } from '@/accounts/initial-capital';
 import { dataScope } from '@/domain/permissions';
 import type { AuthUser } from '@/auth/guards';
 import { BPS_TOTAL, formatVnd, grossAmount } from '@/lib/money';
@@ -1173,6 +1174,7 @@ async function docDongVon(id: string) {
     where: { id },
     select: {
       id: true,
+      reference: true,
       flowType: true,
       status: true,
       amount: true,
@@ -1187,6 +1189,17 @@ async function docDongVon(id: string) {
   });
 
   if (!flow) return { loi: 'Không tìm thấy dòng vốn.' as const, flow: null };
+
+  /*
+   * DÒNG CỦA CẶP "VỐN BAN ĐẦU THỰC TẾ" không sửa/xoá lẻ được: nó đi cặp với một dòng
+   * PRIOR_LOSS cùng số tiền. Sửa một nửa thì tiền mặt lệch đúng bằng phần đã sửa.
+   */
+  if (laCapVonBanDau(flow.reference)) {
+    return {
+      loi: 'Dòng này do ô "Vốn ban đầu thực tế" tạo ra — sửa ở đó (để trống để bỏ).' as const,
+      flow: null,
+    };
+  }
 
   if (
     flow.flowType !== CAPITAL_FLOW_TYPE.CONTRIBUTION &&
@@ -1344,6 +1357,152 @@ export async function deleteCapitalFlowAction(
     };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : 'Xoá dòng vốn thất bại.' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Vốn ban đầu thực tế — lỗ đã chốt trước khi vào hệ thống
+// ---------------------------------------------------------------------------
+
+/**
+ * GHI "VỐN BAN ĐẦU THỰC TẾ" CHO MỘT TÀI KHOẢN — xem src/accounts/initial-capital.ts.
+ *
+ *   lỗ đã chốt trước (L) = vốn ban đầu thực tế − vốn đầu kỳ (giá vốn + tiền mặt lúc vào)
+ *
+ * Ghi / cập nhật cặp CONTRIBUTION +L và PRIOR_LOSS −L. Để trống ô (hoặc nhập đúng bằng
+ * vốn đầu kỳ) là bỏ khoản đã ghi.
+ *
+ * AI ĐƯỢC GHI: `capital.update` — cùng quyền sửa dòng nạp/rút, vì đây cũng là sửa sổ
+ * vốn của người khác. Không mở cho chính chủ: nâng vốn ban đầu của chính mình làm đẹp
+ * hiệu suất mà không ai kiểm.
+ *
+ * CHỈ GHI ĐƯỢC LỖ (L > 0). Vốn thực tế thấp hơn vốn đầu kỳ nghĩa là đã LÃI trước khi vào
+ * — trường hợp người dùng chưa yêu cầu, và ghi nó cần một cặp dòng khác chiều.
+ */
+export async function setInitialCapitalAction(
+  _prev: unknown,
+  formData: FormData,
+): Promise<ActionResult> {
+  const actor = await requirePermission('capital.update');
+
+  const accountId = String(formData.get('accountId') ?? '');
+  const reason = String(formData.get('reason') ?? '').trim();
+  const raw = String(formData.get('amount') ?? '').replace(/[.,\s]/g, '');
+
+  if (!reason) {
+    return { ok: false, fieldErrors: { reason: ['Bắt buộc nêu lý do / nguồn số liệu.'] } };
+  }
+  if (raw !== '' && !/^\d+$/.test(raw)) {
+    return { ok: false, fieldErrors: { amount: ['Số tiền phải là số nguyên dương (VNĐ).'] } };
+  }
+
+  const account = await prisma.brokerAccount.findUnique({
+    where: { id: accountId },
+    select: { id: true, userId: true, broker: true, brokerOther: true, accountNo: true },
+  });
+  if (!account) return { ok: false, message: 'Không tìm thấy tài khoản.' };
+
+  const trangThai = (await docVonBanDau([account.id])).get(account.id)!;
+  if (trangThai.nhieuDauKy) {
+    return {
+      ok: false,
+      message: 'Tài khoản có nhiều dòng "Vốn đầu kỳ" — không biết lấy dòng nào làm mốc. Gộp lại trước.',
+    };
+  }
+  if (!trangThai.dauKy) {
+    return {
+      ok: false,
+      message:
+        'Tài khoản này mở mới trong hệ thống (không có dòng "Vốn đầu kỳ"), nên không có lỗ nào ' +
+        'trước khi vào để ghi.',
+    };
+  }
+
+  const dauKy = trangThai.dauKy;
+  const vonThucTe = raw === '' ? dauKy.amount : BigInt(raw);
+  if (vonThucTe < dauKy.amount) {
+    return {
+      ok: false,
+      fieldErrors: {
+        amount: [
+          `Thấp hơn vốn đầu kỳ ${formatVnd(dauKy.amount)} — như vậy là đã LÃI trước khi vào hệ thống. ` +
+            'Hiện chỉ ghi được khoản lỗ.',
+        ],
+      },
+    };
+  }
+
+  const lo = vonThucTe - dauKy.amount;
+  if (lo === trangThai.loTruoc) return { ok: false, message: 'Không có gì thay đổi.' };
+
+  const ma = maVonBanDau(account.id);
+  const nhan = accountLabel(account.broker, account.brokerOther, account.accountNo);
+
+  try {
+    const meta = await requestMeta();
+
+    await prisma.$transaction(async (tx) => {
+      // Bỏ cặp cũ (nếu có) rồi ghi lại — một tài khoản chỉ có đúng một cặp.
+      await tx.capitalFlow.deleteMany({ where: { reference: ma } });
+
+      if (lo > 0n) {
+        const chung = {
+          portfolioId: dauKy.portfolioId,
+          brokerAccountId: account.id,
+          teamId: dauKy.teamId,
+          amount: lo,
+          occurredAt: dauKy.occurredAt,
+          status: CAPITAL_FLOW_STATUS.CONFIRMED,
+          reference: ma,
+          createdById: actor.id,
+          approvedById: actor.id,
+          approvedAt: new Date(),
+        };
+        await tx.capitalFlow.create({
+          data: {
+            ...chung,
+            flowType: CAPITAL_FLOW_TYPE.CONTRIBUTION,
+            note: 'Vốn ban đầu thực tế — phần đã lỗ trước khi vào hệ thống',
+          },
+        });
+        await tx.capitalFlow.create({
+          data: {
+            ...chung,
+            flowType: CAPITAL_FLOW_TYPE.PRIOR_LOSS,
+            note: 'Lỗ đã chốt trước khi vào hệ thống',
+          },
+        });
+      }
+
+      await writeAudit({
+        tx,
+        actor,
+        action: AUDIT_ACTION.UPDATE,
+        entityType: ENTITY_TYPE.CAPITAL_FLOW,
+        entityId: account.id,
+        entityLabel: `Vốn ban đầu thực tế ${nhan}`,
+        before: {
+          vonDauKy: dauKy.amount,
+          vonThucTe: dauKy.amount + trangThai.loTruoc,
+          loDaChotTruoc: trangThai.loTruoc,
+        },
+        after: { vonDauKy: dauKy.amount, vonThucTe, loDaChotTruoc: lo },
+        note: `Lý do: ${reason}`,
+        ...meta,
+      });
+    });
+
+    refresh(account.userId);
+
+    return {
+      ok: true,
+      message:
+        lo === 0n
+          ? `Đã bỏ khoản lỗ trước khi vào hệ thống của ${nhan}.`
+          : `Đã ghi ${nhan}: vốn ban đầu ${formatVnd(vonThucTe)}, lỗ đã chốt trước ${formatVnd(lo)}.`,
+    };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : 'Ghi vốn ban đầu thất bại.' };
   }
 }
 

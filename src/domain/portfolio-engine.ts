@@ -16,7 +16,7 @@ import 'server-only';
  */
 
 import { prisma } from '@/lib/prisma';
-import { inTradingSession, lastClosedSession, sessionsBetween } from '@/lib/trading-date';
+import { inTradingSession, lastClosedSession, sessionsBetween, tradingDayString } from '@/lib/trading-date';
 import {
   MICRO,
   avgCostMicro,
@@ -286,7 +286,13 @@ export interface PortfolioSummary {
   investedCost: bigint;
   cash: CashBreakdown;
 
+  /** Đã chốt — GỒM `priorRealizedPnl`. */
   realizedPnl: bigint;
+  /**
+   * Phần của `realizedPnl` là lỗ đã chốt TRƯỚC KHI VÀO HỆ THỐNG (≤ 0). 0 khi chưa ghi
+   * hoặc khi đang lọc theo ngành / chiến lược — xem `computePriorRealized`.
+   */
+  priorRealizedPnl: bigint;
   unrealizedPnl: bigint;
   totalPnl: bigint;
   /** Lợi nhuận trên giá vốn đã bỏ ra. */
@@ -735,6 +741,37 @@ export async function computeCash(
   };
 }
 
+/**
+ * LÃI/LỖ ĐÃ CHỐT TRƯỚC KHI VÀO HỆ THỐNG trong một phạm vi — số ÂM (lỗ), 0 nếu chưa ghi.
+ *
+ * Đọc từ các dòng `PRIOR_LOSS` (xem src/accounts/initial-capital.ts). Không thuộc mã
+ * nào, không thuộc chiến lược nào — nên nơi gọi CHỈ cộng nó khi không lọc theo ngành
+ * hay chiến lược; lọc theo hai chiều đó mà vẫn cộng là gán khoản lỗ cho một ngành không
+ * hề gây ra nó.
+ *
+ * Cùng quy ước phạm vi với `computeCash`: `userId` theo chủ tài khoản, `teamId` theo nhóm
+ * ghi trên dòng (ba trạng thái — `null` là phần không thuộc nhóm nào).
+ */
+export async function computePriorRealized(
+  portfolioId: string,
+  opts: { teamId?: string | null; userId?: string } = {},
+): Promise<bigint> {
+  const agg = await prisma.capitalFlow.aggregate({
+    where: {
+      portfolioId,
+      flowType: CAPITAL_FLOW_TYPE.PRIOR_LOSS,
+      status: CAPITAL_FLOW_STATUS.CONFIRMED,
+      ...(opts.userId !== undefined
+        ? { brokerAccount: { userId: opts.userId } }
+        : 'teamId' in opts
+          ? { teamId: opts.teamId ?? null }
+          : {}),
+    },
+    _sum: { amount: true },
+  });
+  return -(agg._sum.amount ?? 0n);
+}
+
 // ---------------------------------------------------------------------------
 // Tỷ trọng ngành (§15)
 // ---------------------------------------------------------------------------
@@ -1117,11 +1154,33 @@ export async function computePortfolioSummary(
     computeStrategyAllocation(filter),
   ]);
 
+  /*
+   * LỖ ĐÃ CHỐT TRƯỚC KHI VÀO HỆ THỐNG — cùng phạm vi người/nhóm với tiền ở trên. Không
+   * thuộc mã hay chiến lược nào, nên lọc theo ngành / chiến lược / thời gian thì không
+   * cộng (xem `computePriorRealized`).
+   */
+  const coTheCongLoTruoc =
+    filter.sectorId === undefined &&
+    filter.strategyId === undefined &&
+    filter.from === undefined &&
+    filter.to === undefined &&
+    filter.brokerAccountId === undefined;
+  const priorRealizedPnl = coTheCongLoTruoc
+    ? await computePriorRealized(
+        filter.portfolioId,
+        filter.userId !== undefined
+          ? { userId: filter.userId }
+          : filter.teamId !== undefined
+            ? { teamId: filter.teamId }
+            : {},
+      )
+    : 0n;
+
   const open = positions.filter((p) => p.quantity > 0);
   const investedValue = open.reduce((s, p) => s + p.marketValue, 0n);
   const investedCost = open.reduce((s, p) => s + p.totalCost, 0n);
   const unrealizedPnl = open.reduce((s, p) => s + p.unrealizedPnl, 0n);
-  const realizedPnl = positions.reduce((s, p) => s + p.realizedPnl, 0n);
+  const realizedPnl = positions.reduce((s, p) => s + p.realizedPnl, 0n) + priorRealizedPnl;
   const totalPnl = realizedPnl + unrealizedPnl;
 
   const portfolioValue = investedValue + cash.cashBalance;
@@ -1139,6 +1198,7 @@ export async function computePortfolioSummary(
     cash,
 
     realizedPnl,
+    priorRealizedPnl,
     unrealizedPnl,
     totalPnl,
     // Lợi nhuận tính trên vốn đã bỏ ra, không trên tổng giá trị danh mục — nếu
@@ -1418,6 +1478,237 @@ export async function computePerformance(
 // ---------------------------------------------------------------------------
 // Chuỗi hiệu suất theo ngày (§13) — dữ liệu cho biểu đồ đường
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Lãi/lỗ TRONG MỘT KHOẢNG — ô "Tổng lãi/lỗ" theo bộ lọc Thời gian
+// ---------------------------------------------------------------------------
+
+/**
+ * Giá của từng mã tại cuối ngày `ngay` (YYYY-MM-DD): giá đóng cửa phiên gần nhất KHÔNG SAU
+ * ngày đó. Nếu bảng giá hiện tại có giá của một phiên mới hơn mà vẫn không sau ngày đó thì
+ * dùng nó — lịch sử giá chỉ nạp khi có người chạy lệnh, nên ngày gần đây có thể chưa có.
+ *
+ * Dùng chung cho báo cáo vốn theo tài khoản và lãi/lỗ trong kỳ: hai nơi định giá "đầu kỳ"
+ * phải ra cùng một con số.
+ */
+export async function giaCuoiNgay(
+  stockIds: readonly string[],
+  ngay: string,
+): Promise<{ gia: Map<string, bigint>; ngayGia: string | null; ngayTheoMa: Map<string, string> }> {
+  const gia = new Map<string, { price: bigint; ngay: string }>();
+  if (stockIds.length === 0) return { gia: new Map(), ngayGia: null, ngayTheoMa: new Map() };
+
+  const moc = new Date(`${ngay}T00:00:00.000Z`); // tradingDate lưu ở nửa đêm UTC
+
+  await Promise.all(
+    stockIds.map(async (id) => {
+      const h = await prisma.priceHistory.findFirst({
+        where: { stockId: id, tradingDate: { lte: moc } },
+        orderBy: { tradingDate: 'desc' },
+        select: { closePrice: true, tradingDate: true },
+      });
+      if (h) gia.set(id, { price: h.closePrice, ngay: h.tradingDate.toISOString().slice(0, 10) });
+    }),
+  );
+
+  const quotes = await prisma.marketQuote.findMany({
+    where: { stockId: { in: [...stockIds] }, tradingDate: { lte: moc } },
+    select: { stockId: true, price: true, tradingDate: true },
+  });
+  for (const q of quotes) {
+    const nq = q.tradingDate.toISOString().slice(0, 10);
+    const cu = gia.get(q.stockId);
+    if (!cu || nq > cu.ngay) gia.set(q.stockId, { price: q.price, ngay: nq });
+  }
+
+  const ngayGia = [...gia.values()].reduce<string | null>(
+    (m, x) => (m === null || x.ngay > m ? x.ngay : m),
+    null,
+  );
+  return {
+    gia: new Map([...gia].map(([k, v]) => [k, v.price])),
+    ngayGia,
+    ngayTheoMa: new Map([...gia].map(([k, v]) => [k, v.ngay])),
+  };
+}
+
+/** Giá đầu kỳ cũ hơn ngày đầu kỳ quá số ngày này thì báo "giá đầu kỳ cũ". */
+const GIA_DAU_KY_CU_NGAY = 4;
+
+export interface PeriodPnl {
+  /** Ngày đầu kỳ (YYYY-MM-DD, giờ Việt Nam). Giá trị đầu kỳ lấy ở cuối ngày LIỀN TRƯỚC. */
+  tuNgay: string;
+  /** Lãi/lỗ trong kỳ. */
+  pnl: bigint;
+  /** Giá trị vị thế đầu kỳ (theo giá đóng cửa cuối ngày trước kỳ). */
+  giaTriDau: bigint;
+  /** Giá trị vị thế bây giờ. */
+  giaTriCuoi: bigint;
+  /** Tiền mua / thu bán trong kỳ (đã chia theo tỷ lệ chiến lược nếu lọc chiến lược). */
+  muaTrongKy: bigint;
+  banTrongKy: bigint;
+  /** Cổ tức, lãi tiền gửi, thu/chi khác trong kỳ (không gồm nạp/rút vốn). */
+  thuKhac: bigint;
+  /** Lãi/lỗ trên (giá trị đầu kỳ + tiền mua trong kỳ), bps. null khi mẫu số = 0. */
+  pnlBps: number | null;
+  /** Mã đang giữ đầu kỳ mà không có giá ngày đó — tạm định giá bằng giá vốn. */
+  thieuGiaDau: string[];
+  /** Lọc theo chiến lược: cổ tức & thu khác không chia được theo chiến lược nên KHÔNG gồm. */
+  boQuaThuKhac: boolean;
+  /**
+   * GIÁ ĐẦU KỲ CŨ: lịch sử giá của các mã này dừng trước ngày đầu kỳ hơn
+   * `GIA_DAU_KY_CU_NGAY` ngày, nên "giá trị đầu kỳ" thực ra là giá của một ngày sớm hơn —
+   * và lãi/lỗ trong kỳ gồm cả biến động từ ngày đó. Đã gặp thật: lịch sử dừng 18/09 làm
+   * "1 tuần" từ 28/09 ra −879 triệu. `null` khi giá đủ mới.
+   */
+  giaDauCu: { ngayCuNhat: string; ma: string[] } | null;
+}
+
+/**
+ * LÃI/LỖ TRONG KHOẢNG `period`, theo đúng bộ lọc của Dashboard.
+ *
+ *   lãi/lỗ = giá trị vị thế bây giờ − giá trị vị thế đầu kỳ
+ *            − tiền mua trong kỳ + tiền thu bán trong kỳ
+ *            + cổ tức, lãi tiền gửi, thu/chi khác trong kỳ
+ *
+ * Đây đúng bằng "tài sản ròng cuối − đầu − nộp + rút" (báo cáo vốn theo tài khoản), viết
+ * theo vị thế: tiền mặt chỉ đổi vì nạp/rút (không phải lãi), mua/bán (đã tính ở trên) và
+ * thu khác. Viết theo vị thế thì lọc được theo nhóm, người, ngành, chiến lược như mọi ô
+ * khác — tiền mặt thì không chia được theo ngành hay chiến lược.
+ *
+ * `null` khi `period = 'ALL'` — khi đó "Tổng lãi/lỗ" là số cộng dồn như cũ.
+ */
+export async function computePeriodPnl(
+  filter: EngineFilter & { portfolioId: string },
+  period: PeriodCode,
+  now: Date = new Date(),
+): Promise<PeriodPnl | null> {
+  const dau = periodStart(period, now);
+  if (!dau) return null;
+
+  const tuNgay = tradingDayString(dau);
+  const truoc = new Date(`${tuNgay}T00:00:00.000Z`);
+  truoc.setUTCDate(truoc.getUTCDate() - 1);
+  const ngayTruoc = truoc.toISOString().slice(0, 10);
+  const mocDau = new Date(`${ngayTruoc}T23:59:59.999+07:00`);
+
+  const { from: _f, to: _t, ...loc } = filter;
+
+  const [viTheDau, viTheCuoi, lenh] = await Promise.all([
+    computePositions({ ...loc, to: mocDau }),
+    computePositions(loc),
+    prisma.trade.findMany({
+      where: tradeWhere({ ...loc, from: new Date(mocDau.getTime() + 1) }),
+      select: {
+        transactionType: true,
+        quantity: true,
+        price: true,
+        fees: true,
+        tax: true,
+        strategies: loc.strategyId
+          ? { where: { strategyId: loc.strategyId }, select: { allocationBps: true } }
+          : false,
+      },
+    }),
+  ]);
+
+  // Giá trị đầu kỳ: khối lượng lúc đó × giá đóng cửa ngày đó.
+  const moDau = viTheDau.filter((p) => p.quantity > 0);
+  const { gia, ngayTheoMa } = await giaCuoiNgay(
+    moDau.map((p) => p.stockId),
+    ngayTruoc,
+  );
+  const mocCu = new Date(`${ngayTruoc}T00:00:00.000Z`);
+  mocCu.setUTCDate(mocCu.getUTCDate() - GIA_DAU_KY_CU_NGAY);
+  const mocCuStr = mocCu.toISOString().slice(0, 10);
+  const maCu = moDau.filter((p) => {
+    const n = ngayTheoMa.get(p.stockId);
+    return n !== undefined && n < mocCuStr;
+  });
+  const giaDauCu =
+    maCu.length > 0
+      ? {
+          ngayCuNhat: maCu.map((p) => ngayTheoMa.get(p.stockId)!).sort()[0]!,
+          ma: maCu.map((p) => p.symbol).sort(),
+        }
+      : null;
+  let giaTriDau = 0n;
+  const thieuGiaDau: string[] = [];
+  for (const p of moDau) {
+    const g = gia.get(p.stockId);
+    if (g === undefined) {
+      giaTriDau += p.totalCost;
+      thieuGiaDau.push(p.symbol);
+    } else {
+      giaTriDau += BigInt(p.quantity) * g;
+    }
+  }
+
+  const giaTriCuoi = viTheCuoi
+    .filter((p) => p.quantity > 0)
+    .reduce((s, p) => s + p.marketValue, 0n);
+
+  let muaTrongKy = 0n;
+  let banTrongKy = 0n;
+  for (const t of lenh) {
+    const share = loc.strategyId
+      ? (t.strategies as { allocationBps: number }[]).reduce((x, a) => x + a.allocationBps, 0)
+      : BPS_TOTAL;
+    if (share === 0) continue;
+    const mua = t.transactionType === TRANSACTION_TYPE.BUY;
+    const net = divRound(
+      netAmount(mua ? 'BUY' : 'SELL', t.quantity, t.price, t.fees, t.tax) * BigInt(share),
+      BigInt(BPS_TOTAL),
+    );
+    if (mua) muaTrongKy += net;
+    else banTrongKy += net;
+  }
+
+  /*
+   * THU KHÁC trong kỳ — mọi dòng vốn không phải nạp/rút. Lọc theo ngành thì chỉ cổ tức
+   * của mã thuộc ngành (cổ tức có `stockId`); lọc theo chiến lược thì bỏ hẳn, vì không
+   * dòng tiền nào mang chiến lược.
+   */
+  const boQuaThuKhac = loc.strategyId !== undefined;
+  let thuKhac = 0n;
+  if (!boQuaThuKhac) {
+    const flows = await prisma.capitalFlow.findMany({
+      where: {
+        portfolioId: loc.portfolioId,
+        status: CAPITAL_FLOW_STATUS.CONFIRMED,
+        occurredAt: { gt: mocDau },
+        flowType: { notIn: [CAPITAL_FLOW_TYPE.CONTRIBUTION, CAPITAL_FLOW_TYPE.WITHDRAWAL] },
+        ...(loc.userId !== undefined ? { brokerAccount: { userId: loc.userId } } : {}),
+        ...(loc.userId === undefined && loc.teamId !== undefined ? { teamId: loc.teamId } : {}),
+        ...(loc.sectorId
+          ? { flowType: CAPITAL_FLOW_TYPE.DIVIDEND, stock: { sectorId: loc.sectorId } }
+          : {}),
+      },
+      select: { flowType: true, amount: true },
+    });
+    thuKhac = flows.reduce(
+      (s, f) => s + BigInt(CAPITAL_FLOW_SIGN[f.flowType as CapitalFlowType]) * f.amount,
+      0n,
+    );
+  }
+
+  const pnl = giaTriCuoi - giaTriDau - muaTrongKy + banTrongKy + thuKhac;
+  const mau = giaTriDau + muaTrongKy;
+
+  return {
+    tuNgay,
+    pnl,
+    giaTriDau,
+    giaTriCuoi,
+    muaTrongKy,
+    banTrongKy,
+    thuKhac,
+    pnlBps: mau > 0n ? ratioToBps(pnl, mau) : null,
+    thieuGiaDau: thieuGiaDau.sort(),
+    boQuaThuKhac,
+    giaDauCu,
+  };
+}
 
 export interface PerformancePoint {
   date: Date;
@@ -1858,7 +2149,18 @@ export async function computeTeamPerformance(
     const investedCost = open.reduce((s, p) => s + p.totalCost, 0n);
     const marketValue = open.reduce((s, p) => s + p.marketValue, 0n);
     const unrealizedPnl = open.reduce((s, p) => s + p.unrealizedPnl, 0n);
-    const realizedPnl = positions.reduce((s, p) => s + p.realizedPnl, 0n);
+    /*
+     * Lỗ đã chốt trước khi vào hệ thống của nhóm — chỉ khi không lọc ngành / chiến lược /
+     * thời gian, cùng điều kiện với `computePortfolioSummary`.
+     */
+    const loTruoc =
+      loc.strategyId === undefined &&
+      loc.sectorId === undefined &&
+      loc.from === undefined &&
+      loc.to === undefined
+        ? await computePriorRealized(portfolioId, { teamId: team.teamId })
+        : 0n;
+    const realizedPnl = positions.reduce((s, p) => s + p.realizedPnl, 0n) + loTruoc;
     const totalPnl = realizedPnl + unrealizedPnl;
 
     /*
@@ -2068,13 +2370,17 @@ export async function computeMemberPerformance(
      * thuộc nhóm cũ. Lọc cả hai điều kiện sẽ làm biến mất chính những lệnh cần
      * tính, và tổng theo cá nhân không còn khớp tổng theo nhóm.
      */
-    const positions = await computePositions({ portfolioId, userId: u.id });
+    const [positions, loTruoc] = await Promise.all([
+      computePositions({ portfolioId, userId: u.id }),
+      // Lỗ đã chốt trước khi vào hệ thống của người này (tài khoản của họ).
+      computePriorRealized(portfolioId, { userId: u.id }),
+    ]);
 
     const open = positions.filter((p) => p.quantity > 0);
     const investedCost = open.reduce((s, p) => s + p.totalCost, 0n);
     const marketValue = open.reduce((s, p) => s + p.marketValue, 0n);
     const unrealizedPnl = open.reduce((s, p) => s + p.unrealizedPnl, 0n);
-    const realizedPnl = positions.reduce((s, p) => s + p.realizedPnl, 0n);
+    const realizedPnl = positions.reduce((s, p) => s + p.realizedPnl, 0n) + loTruoc;
 
     out.push({
       userId: u.id,
@@ -2477,7 +2783,16 @@ export async function computeIbExposure(
       userId: true,
       user: { select: { teamId: true } },
       capitalFlows: {
-        where: { status: CAPITAL_FLOW_STATUS.CONFIRMED, portfolioId },
+        /*
+         * BỎ PRIOR_LOSS: vốn theo IB là tiền đã bỏ vào qua IB đó, và khoản lỗ trước khi
+         * vào hệ thống là phần vốn đã mất chứ không phải tiền rút ra — cùng cách cột
+         * "Vốn ròng đã nạp" trên thẻ tài khoản đọc nó.
+         */
+        where: {
+          status: CAPITAL_FLOW_STATUS.CONFIRMED,
+          portfolioId,
+          flowType: { not: CAPITAL_FLOW_TYPE.PRIOR_LOSS },
+        },
         select: { flowType: true, amount: true },
       },
     },

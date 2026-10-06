@@ -272,3 +272,23 @@ export async function computeDismissedCorporateEvents(pv: PhamViCoTuc, take = 30
 }
 
 export { nhanTaiKhoan };
+
+/**
+ * HUY HIỆU MENU "Cổ tức" — bao nhiêu MÃ đã tới hạn ghi nhận mà chưa ghi.
+ *
+ * Đếm theo MÃ, không theo mục: một đợt chia của FPT trên ba tài khoản là một việc
+ * người dùng nhìn thấy ("FPT chưa ghi"), không phải ba. Cùng phạm vi với trang cổ tức
+ * (`phamViCoTuc`), nên huy hiệu không bao giờ hứa một mục mà trang không cho thấy.
+ *
+ * Mục `choTienVe` (cổ tức tiền mặt mà ngày trả còn ở tương lai) KHÔNG tính vào số: chưa
+ * ghi được thì chưa phải việc phải làm. Chúng được kể riêng cho chú thích.
+ */
+export async function demCoTucChoGhi(
+  pv: PhamViCoTuc,
+): Promise<{ soMa: number; soMuc: number; soMaChoTienVe: number }> {
+  const muc = await computePendingCorporateEvents(pv);
+  const ghiDuoc = muc.filter((m) => !m.choTienVe);
+  const maGhiDuoc = new Set(ghiDuoc.map((m) => m.symbol));
+  const maChoTien = new Set(muc.filter((m) => m.choTienVe && !maGhiDuoc.has(m.symbol)).map((m) => m.symbol));
+  return { soMa: maGhiDuoc.size, soMuc: ghiDuoc.length, soMaChoTienVe: maChoTien.size };
+}

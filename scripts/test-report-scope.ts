@@ -49,12 +49,27 @@ async function main(): Promise<void> {
     select: { id: true },
   });
 
-  const nhom = await prisma.team.findMany({ orderBy: { code: 'asc' }, select: { id: true, nameVi: true } });
-  if (nhom.length < 2) {
-    console.log('  BOQUA: can it nhat 2 nhom');
-    return;
-  }
-  const [nhomA, nhomB] = [nhom[0]!, nhom[1]!];
+  /*
+   * HAI NHÓM DỰNG RIÊNG cho bài này, không mượn nhóm có sẵn.
+   *
+   * Bản đầu lấy hai nhóm đầu tiên trong database và giả định chúng chưa có lệnh nào.
+   * Sau khi nạp dữ liệu thật (30/09) nhóm "Cầu Lông" có lệnh VNM thật, nên phép "KHÔNG
+   * lộ VNM" trượt dù báo cáo lọc đúng — công cụ đo hỏng, không phải sản phẩm. Nhóm mới
+   * tạo thì chắc chắn chỉ có đúng những gì bài này ghi vào.
+   */
+  const phong = await prisma.department.findFirstOrThrow({ select: { id: true } });
+  const taoNhom = (hau: string) =>
+    prisma.team.create({
+      data: {
+        code: `SCOPE_${hau}_${process.pid}`,
+        name: `Scope ${hau}`,
+        nameVi: `Nhóm kiểm ${hau}`,
+        departmentId: phong.id,
+      },
+      select: { id: true, nameVi: true },
+    });
+  const nhomA = await taoNhom('A');
+  const nhomB = await taoNhom('B');
 
   const ma = await prisma.stock.findMany({
     where: { symbol: { in: ['FPT', 'VNM'] } },

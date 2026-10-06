@@ -142,6 +142,17 @@ export const CAPITAL_FLOW_TYPE = {
   INTEREST: 'INTEREST',
   OTHER_INCOME: 'OTHER_INCOME',
   OTHER_EXPENSE: 'OTHER_EXPENSE',
+  /**
+   * LỖ ĐÃ CHỐT TRƯỚC KHI VÀO HỆ THỐNG — luôn đi thành cặp với một dòng CONTRIBUTION
+   * cùng số tiền và cùng `reference` (`VBD:<tài khoản>`), xem src/accounts/initial-capital.ts.
+   *
+   * "Vốn đầu kỳ" của tài khoản cũ được ghi bằng giá vốn vị thế + tiền mặt LÚC VÀO, nên
+   * khoản lỗ đã chốt trước đó không nằm ở đâu cả. Cặp dòng này đưa nó trở lại:
+   * CONTRIBUTION +L nâng vốn ban đầu lên đúng số thật, PRIOR_LOSS −L trả tiền mặt về như
+   * cũ — và engine cộng −L vào lãi/lỗ đã chốt. Không ghi tay được; chỉ ô "Vốn ban đầu
+   * thực tế" tạo ra nó.
+   */
+  PRIOR_LOSS: 'PRIOR_LOSS',
 } as const;
 export type CapitalFlowType = ValueOf<typeof CAPITAL_FLOW_TYPE>;
 
@@ -156,6 +167,7 @@ export const CAPITAL_FLOW_SIGN: Record<CapitalFlowType, 1 | -1> = {
   INTEREST: 1,
   OTHER_INCOME: 1,
   OTHER_EXPENSE: -1,
+  PRIOR_LOSS: -1,
 };
 
 /** Dòng tiền có làm thay đổi TỔNG NGUỒN VỐN góp (không chỉ số dư tiền). */
@@ -166,6 +178,7 @@ export const CAPITAL_FLOW_AFFECTS_CONTRIBUTED: Record<CapitalFlowType, boolean> 
   INTEREST: false,
   OTHER_INCOME: false,
   OTHER_EXPENSE: false,
+  PRIOR_LOSS: false,
 };
 
 export const CAPITAL_FLOW_LABEL_VI: Record<CapitalFlowType, string> = {
@@ -175,6 +188,7 @@ export const CAPITAL_FLOW_LABEL_VI: Record<CapitalFlowType, string> = {
   INTEREST: 'Lãi tiền gửi',
   OTHER_INCOME: 'Thu khác',
   OTHER_EXPENSE: 'Chi khác',
+  PRIOR_LOSS: 'Lỗ đã chốt trước khi vào hệ thống',
 };
 
 export const CAPITAL_FLOW_STATUS = {

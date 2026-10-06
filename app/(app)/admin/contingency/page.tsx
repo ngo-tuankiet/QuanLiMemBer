@@ -7,7 +7,9 @@ import { mauChienLuoc } from '@/components/charts';
 import { ContingencyForm, type MucForm } from './ContingencyForm';
 import { maNguong, mucCuaMaNguong, type MucDuPhong } from '@/risk/contingency';
 import { formatBps } from '@/lib/money';
-import { ALERT_STATUS, RISK_SCOPE } from '@/lib/enums';
+import { ALERT_STATUS, PORTFOLIO_STATUS, RISK_SCOPE } from '@/lib/enums';
+import { computePositions } from '@/domain/portfolio-engine';
+import { ContingencyGauge, type MaLo } from '@/components/ContingencyGauge';
 
 export const metadata: Metadata = { title: 'Kế hoạch dự phòng' };
 
@@ -57,6 +59,115 @@ export default async function ContingencyPage() {
 
   const quyTac = new Map(rules.map((r) => [r.code, r]));
 
+  /*
+   * LỖ TỪNG MÃ THEO CHIẾN LƯỢC — cho thanh mức độ. Đo ĐÚNG như bộ kiểm cảnh báo
+   * (`evaluateContingencyRules`): `computePositions({ strategyId })`, chỉ mã đang giữ có
+   * giá và có giá vốn, lỗ = −returnBps. Thanh và cảnh báo không thể nói hai điều khác nhau.
+   */
+  const portfolio = await prisma.portfolio.findFirst({
+    where: { status: PORTFOLIO_STATUS.ACTIVE },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  const loTheoCL = new Map<string, { maLo: MaLo[]; soMa: number }>(
+    portfolio
+      ? await Promise.all(
+          strategies.map(async (s) => {
+            const vt = (await computePositions({ portfolioId: portfolio.id, strategyId: s.id })).filter(
+              (p) => p.quantity > 0 && !p.missingPrice && p.totalCost > 0n,
+            );
+            const maLo = vt
+              .filter((p) => p.returnBps < 0)
+              .map((p) => ({ symbol: p.symbol, loBps: -p.returnBps }))
+              .sort((a, b) => b.loBps - a.loBps);
+            return [s.id, { maLo, soMa: vt.length }] as const;
+          }),
+        )
+      : [],
+  );
+
+  /** Thẻ kế hoạch của một chiến lược. */
+  const veThe = (s: (typeof strategies)[number]) => {
+    const levels: MucForm[] = ([1, 2, 3] as const).map((m) => {
+      const r = quyTac.get(maNguong(s.id, m));
+      return {
+        muc: m,
+        phanTram: r && r.threshold > 0n ? bpsSangO(r.threshold) : '',
+        hanhDong: r?.description ?? '',
+      };
+    });
+    const cuaCL = rules.filter((r) => r.targetRef === s.id);
+    const dangBat = cuaCL.some((r) => r.isActive && r.threshold > 0n);
+    const coKeHoach = cuaCL.some((r) => r.threshold > 0n);
+    const dangCham = alerts.filter((a) => a.rule.targetRef === s.id);
+
+    return (
+      <Card key={s.id} className="p-5">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+          <h2 className="flex shrink-0 items-center gap-2 text-sm font-semibold text-strong">
+            <span
+              className="size-2.5 shrink-0 rounded-sm"
+              style={{ backgroundColor: mauChienLuoc(s.colorHex, s.sortOrder - 1) }}
+              aria-hidden
+            />
+            {s.nameVi}
+            {!s.isActive ? (
+              <span className="rounded border border-ink-700 px-1.5 py-px text-micro font-normal text-slate-muted">
+                chiến lược đã tắt
+              </span>
+            ) : null}
+          </h2>
+          {/*
+            THANH MỨC ĐỘ: mã lỗ sâu nhất của chiến lược so với ba mức đang đặt
+            (theo số đã LƯU, không theo ô đang gõ dở).
+          */}
+          <div className="order-3 w-full sm:order-none sm:w-auto sm:min-w-[18rem] sm:flex-1">
+            <ContingencyGauge
+              mucBps={levels.map((l) => {
+                const r = quyTac.get(maNguong(s.id, l.muc));
+                return r && r.isActive && r.threshold > 0n ? Number(r.threshold) : null;
+              })}
+              maLo={loTheoCL.get(s.id)?.maLo ?? []}
+              soMaDangGiu={loTheoCL.get(s.id)?.soMa ?? 0}
+            />
+          </div>
+          <span className={`shrink-0 text-tiny ${dangBat ? 'text-up-500' : 'text-slate-muted'}`}>
+            {dangBat ? 'Kế hoạch đang bật' : coKeHoach ? 'Kế hoạch đang tắt' : 'Chưa đặt kế hoạch'}
+          </span>
+        </div>
+
+        {dangCham.length > 0 ? (
+          <p className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-tiny text-slate-soft">
+            <span className="text-slate-muted">Đang chạm mức:</span>
+            {dangCham.map((a) => {
+              const m = mucCuaMaNguong(a.rule.code) ?? 1;
+              return (
+                <span key={`${a.rule.code}|${a.targetRef}`} className="flex items-center gap-1">
+                  <span aria-hidden>{DOT[m]}</span>
+                  <span className="font-mono font-semibold text-strong">{a.targetRef}</span>
+                  <span className="tabular text-down-500">
+                    −{formatBps(Number(a.measuredValue ?? 0n), false)}
+                  </span>
+                </span>
+              );
+            })}
+          </p>
+        ) : null}
+
+        <ContingencyForm strategyId={s.id} isActive={dangBat || !coKeHoach} levels={levels} />
+      </Card>
+    );
+  };
+
+  /*
+   * KẾ HOẠCH CHƯA BẬT ĐƯỢC ẨN ĐI (yêu cầu của người dùng — "để dễ nhìn"): chỉ chiến lược
+   * đang bật kế hoạch hiện đầy đủ. Chiến lược chưa đặt hoặc đang tắt gom vào một mục thu
+   * gọn cuối trang — ẩn chứ không bỏ, vì đó vẫn là chỗ duy nhất để bật hay đặt mới.
+   */
+  const dangBatCL = (id: string) => rules.some((r) => r.targetRef === id && r.isActive && r.threshold > 0n);
+  const hien = strategies.filter((x) => dangBatCL(x.id));
+  const an = strategies.filter((x) => !dangBatCL(x.id));
+
   return (
     <>
       <PageHeader
@@ -96,65 +207,29 @@ export default async function ContingencyPage() {
           <EmptyState title="Chưa có chiến lược nào" />
         </Card>
       ) : (
-        <div className="space-y-4">
-          {strategies.map((s) => {
-            const levels: MucForm[] = ([1, 2, 3] as const).map((m) => {
-              const r = quyTac.get(maNguong(s.id, m));
-              return {
-                muc: m,
-                phanTram: r && r.threshold > 0n ? bpsSangO(r.threshold) : '',
-                hanhDong: r?.description ?? '',
-              };
-            });
-            const cuaCL = rules.filter((r) => r.targetRef === s.id);
-            const dangBat = cuaCL.some((r) => r.isActive && r.threshold > 0n);
-            const coKeHoach = cuaCL.some((r) => r.threshold > 0n);
-            const dangCham = alerts.filter((a) => a.rule.targetRef === s.id);
+        <>
+          {hien.length > 0 ? (
+            <div className="space-y-4">{hien.map(veThe)}</div>
+          ) : (
+            <Card className="p-5">
+              <EmptyState
+                title="Chưa chiến lược nào bật kế hoạch"
+                hint="Mở mục bên dưới để đặt mức lỗ và bật kế hoạch cho một chiến lược."
+              />
+            </Card>
+          )}
 
-            return (
-              <Card key={s.id} className="p-5">
-                <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-                  <h2 className="flex items-center gap-2 text-sm font-semibold text-strong">
-                    <span
-                      className="size-2.5 shrink-0 rounded-sm"
-                      style={{ backgroundColor: mauChienLuoc(s.colorHex, s.sortOrder - 1) }}
-                      aria-hidden
-                    />
-                    {s.nameVi}
-                    {!s.isActive ? (
-                      <span className="rounded border border-ink-700 px-1.5 py-px text-micro font-normal text-slate-muted">
-                        chiến lược đã tắt
-                      </span>
-                    ) : null}
-                  </h2>
-                  <span className={`text-tiny ${dangBat ? 'text-up-500' : 'text-slate-muted'}`}>
-                    {dangBat ? 'Kế hoạch đang bật' : coKeHoach ? 'Kế hoạch đang tắt' : 'Chưa đặt kế hoạch'}
-                  </span>
-                </div>
-
-                {dangCham.length > 0 ? (
-                  <p className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-tiny text-slate-soft">
-                    <span className="text-slate-muted">Đang chạm mức:</span>
-                    {dangCham.map((a) => {
-                      const m = mucCuaMaNguong(a.rule.code) ?? 1;
-                      return (
-                        <span key={`${a.rule.code}|${a.targetRef}`} className="flex items-center gap-1">
-                          <span aria-hidden>{DOT[m]}</span>
-                          <span className="font-mono font-semibold text-strong">{a.targetRef}</span>
-                          <span className="tabular text-down-500">
-                            −{formatBps(Number(a.measuredValue ?? 0n), false)}
-                          </span>
-                        </span>
-                      );
-                    })}
-                  </p>
-                ) : null}
-
-                <ContingencyForm strategyId={s.id} isActive={dangBat || !coKeHoach} levels={levels} />
-              </Card>
-            );
-          })}
-        </div>
+          {an.length > 0 ? (
+            <details className="mt-4 rounded-xl border border-ink-700">
+              <summary className="cursor-pointer px-4 py-3 text-xs text-slate-muted hover:text-slate-soft">
+                Kế hoạch chưa bật ({an.length}):{' '}
+                <span className="text-slate-soft">{an.map((x) => x.nameVi).join(', ')}</span>
+                <span className="ml-1 text-ink-500">— bấm để mở, đặt mức và bật</span>
+              </summary>
+              <div className="space-y-4 border-t border-ink-700 p-4">{an.map(veThe)}</div>
+            </details>
+          ) : null}
+        </>
       )}
     </>
   );

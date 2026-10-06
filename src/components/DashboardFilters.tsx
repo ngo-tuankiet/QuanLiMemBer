@@ -40,6 +40,12 @@ export interface FilterGroup {
    * đây chỉ là để giao diện khỏi mời gọi; chốt thật nằm ở `applyScope()` phía server.
    */
   lockedReason?: string;
+  /**
+   * Ô lọc PHỤ THUỘC ô này — đổi ô này thì bỏ chọn chúng. Đổi Nhóm thì Thành viên đang
+   * chọn có thể không còn thuộc nhóm mới; giữ lại là lọc ra một tổ hợp rỗng mà không
+   * ai hiểu vì sao.
+   */
+  resets?: readonly string[];
 }
 
 export function DashboardFilters({ groups }: { groups: readonly FilterGroup[] }) {
@@ -51,6 +57,7 @@ export function DashboardFilters({ groups }: { groups: readonly FilterGroup[] })
     const next = new URLSearchParams(params.toString());
     if (value) next.set(name, value);
     else next.delete(name);
+    for (const phu of groups.find((g) => g.name === name)?.resets ?? []) next.delete(phu);
 
     startTransition(() => {
       // `scroll: false` để người đang xem khối giữa trang không bị nhảy lên đầu

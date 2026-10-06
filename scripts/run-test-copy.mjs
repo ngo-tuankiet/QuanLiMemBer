@@ -59,14 +59,19 @@ if (!existsSync(tsxCli)) {
 }
 
 try {
+  const polyfill = path.resolve('scripts', 'polyfill-node18.cjs');
   const kq = spawnSync(
     process.execPath,
     // Tham số sau tên script được chuyển tiếp — script sửa dữ liệu cần cờ --yes.
-    [tsxCli, '--tsconfig', 'tsconfig.test.json', scriptKiemThu, ...process.argv.slice(3)],
+    ['-r', polyfill, tsxCli, '--tsconfig', 'tsconfig.test.json', scriptKiemThu, ...process.argv.slice(3)],
     {
       stdio: 'inherit',
       // Đường dẫn trong DATABASE_URL của SQLite tính từ thư mục prisma/.
-      env: { ...process.env, DATABASE_URL: `file:./${tenBanSao}` },
+      env: {
+        ...process.env,
+        DATABASE_URL: `file:./${tenBanSao}`,
+        NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} -r "${polyfill.replace(/\\/g, '/')}"`.trim(),
+      },
     },
   );
 

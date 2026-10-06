@@ -23,6 +23,8 @@ import { LangToggle } from '@/components/LangToggle';
 import { getMarketDataStatus } from '@/domain/portfolio-engine';
 import { countOpenAlertsBySeverity } from '@/risk/scan';
 import { countPendingForUser } from '@/approvals/queue';
+import { demCoTucChoGhi } from '@/dividends/pending';
+import { phamViCoTuc } from '@/dividends/scope';
 import type { AuthUser } from '@/auth/guards';
 import { BRAND_NAME_UPPER, BRAND_TAGLINE } from '@/lib/brand';
 
@@ -192,6 +194,15 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
   const pending = await countPendingForUser(user);
 
   /*
+   * HUY HIỆU "Cổ tức": số MÃ đã tới hạn ghi nhận mà chưa ghi, cùng phạm vi với trang cổ
+   * tức. Chỉ tính cho người mở được trang đó (cùng cổng quyền với trang).
+   */
+  const coTucCho =
+    user.permissions.has('transaction.create') || user.permissions.has('transaction.view_all')
+      ? await demCoTucChoGhi(phamViCoTuc(user))
+      : null;
+
+  /*
    * MỘT CÂY NAV, HAI CHỖ HIỆN.
    *
    * Sidebar (từ `lg` trở lên) và drawer (dưới `lg`) cùng kết xuất biến này. Chép
@@ -253,9 +264,26 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
                       <li key={child.labelKey}>
                         <Link
                           href={child.href}
-                          className="block py-1 text-xs text-slate-muted transition hover:text-strong"
+                          className="flex items-center gap-2 py-1 text-xs text-slate-muted transition hover:text-strong"
                         >
-                          {nhan(child.labelKey)}
+                          <span className="min-w-0 truncate">{nhan(child.labelKey)}</span>
+                          {/*
+                            Cùng kiểu huy hiệu với Rủi ro / Duyệt: việc đang chờ người dùng
+                            làm, nên tông cảnh báo.
+                          */}
+                          {child.href === '/transactions/dividend' && coTucCho && coTucCho.soMa > 0 ? (
+                            <span
+                              title={
+                                `${coTucCho.soMa} mã đã tới hạn, chưa ghi nhận (${coTucCho.soMuc} mục theo tài khoản)` +
+                                (coTucCho.soMaChoTienVe > 0
+                                  ? ` · ${coTucCho.soMaChoTienVe} mã đang chờ tiền về`
+                                  : '')
+                              }
+                              className="tabular mr-3 ml-auto rounded bg-down-500/15 px-1.5 py-px text-micro font-medium text-down-500"
+                            >
+                              {coTucCho.soMa}
+                            </span>
+                          ) : null}
                         </Link>
                       </li>
                     ) : (
@@ -295,7 +323,7 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
       {/* ---------------------------------------------------------------- */}
       {/* Sidebar                                                          */}
       {/* ---------------------------------------------------------------- */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-ink-800 bg-ink-900 lg:flex">
+      <aside className="chrome hidden w-60 shrink-0 flex-col border-r border-ink-800 bg-ink-900 lg:flex">
         <div className="flex items-center gap-2.5 border-b border-ink-800 px-4 py-4">
           {/*
             Dấu hiệu nhận diện vẽ bằng SVG, không dùng tệp ảnh: nó ăn theo màu nhấn
@@ -341,7 +369,7 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
           `gap-2` ở khổ hẹp thay vì `gap-4`: sáu phần tử × 16px khoảng cách là 80px
           thuần khoảng trống trên một màn 375px.
         */}
-        <header className="flex items-center justify-between gap-2 border-b border-ink-800 bg-ink-900/60 px-3 py-2 backdrop-blur sm:gap-4 sm:px-5 sm:py-3">
+        <header className="chrome flex items-center justify-between gap-2 border-b border-ink-800 bg-ink-900 px-3 py-2 sm:gap-4 sm:px-5 sm:py-3">
           {/*
             Bên trái thanh trên ở khổ hẹp: nút mở menu, rồi mới đến chữ nhận diện.
 

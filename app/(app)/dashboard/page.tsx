@@ -30,6 +30,7 @@ import {
   type IbExposure,
   computeMemberPerformance,
   computePerformanceSeries,
+  computePeriodPnl,
   computePortfolioSummary,
   computeTeamPerformance,
   type EngineFilter,
@@ -93,6 +94,7 @@ export default async function DashboardPage({
   searchParams: Promise<{
     portfolioId?: string;
     teamId?: string;
+    userId?: string;
     strategyId?: string;
     sectorId?: string;
     period?: string;
@@ -196,11 +198,51 @@ export default async function DashboardPage({
    */
   const requestedTeamId = seeAllTeams ? params.teamId : undefined;
 
+  /*
+   * BỘ LỌC THÀNH VIÊN — danh sách THEO VAI TRÒ, và chính danh sách đó là chốt quyền:
+   *
+   *   ALL   mọi người (đã chọn Nhóm thì chỉ người trong nhóm đó)
+   *   TEAM  người trong nhóm của người xem
+   *   SELF  khoá ở chính mình (phạm vi đã là một người)
+   *
+   * `userId` trên URL chỉ được nhận khi nằm trong danh sách — sửa query string sang người
+   * ngoài phạm vi thì bị bỏ qua, không lọc ra dữ liệu của người đó.
+   *
+   * Chỉ người có tài khoản chứng khoán hoặc đã có lệnh: người chưa từng giao dịch chọn
+   * vào chỉ ra một trang toàn số 0.
+   */
+  const thanhVienChon =
+    portfolioScope === 'NONE'
+      ? []
+      : await prisma.user.findMany({
+          where: {
+            OR: [
+              { brokerAccounts: { some: {} } },
+              { tradesExecuted: { some: { portfolioId: portfolio.id } } },
+            ],
+            ...(portfolioScope === 'ALL'
+              ? requestedTeamId
+                ? { teamId: requestedTeamId }
+                : {}
+              : portfolioScope === 'TEAM'
+                ? { teamId: user.teamId ?? '__no_team__' }
+                : { id: user.id }),
+          },
+          orderBy: { fullName: 'asc' },
+          select: { id: true, fullName: true, teamId: true },
+        });
+  const thanhVienDaChon =
+    portfolioScope !== 'SELF' && params.userId
+      ? (thanhVienChon.find((u) => u.id === params.userId) ?? null)
+      : null;
+  const requestedUserId = thanhVienDaChon?.id;
+
   const filter: EngineFilter & { portfolioId: string } = {
     ...applyPersonalScope(
       {
         portfolioId: portfolio.id,
         teamId: requestedTeamId,
+        userId: requestedUserId,
         strategyId: params.strategyId,
         sectorId: params.sectorId,
       },
@@ -222,10 +264,20 @@ export default async function DashboardPage({
     capitalScope,
     user,
   );
+  /*
+   * Thành viên đã chọn chỉ áp vào khối IB khi phạm vi VỐN cũng cho xem người đó — hai
+   * module có thể lệch nhau qua quyền cấp riêng.
+   */
+  const ibXemDuocNguoiChon =
+    thanhVienDaChon !== null &&
+    (capitalScope === 'ALL' ||
+      (capitalScope === 'TEAM' && user.teamId !== null && thanhVienDaChon.teamId === user.teamId));
   const ibOptions =
     ibPhamVi.userId !== undefined
       ? { onlyUserId: ibPhamVi.userId }
-      : { onlyTeamId: ibPhamVi.teamId };
+      : ibXemDuocNguoiChon
+        ? { onlyUserId: thanhVienDaChon!.id }
+        : { onlyTeamId: ibPhamVi.teamId };
 
   /*
    * Bắt đầu sớm, chờ sau: 9 lượt `computePositions` (mỗi chiến lược một lượt) chạy
@@ -287,7 +339,7 @@ export default async function DashboardPage({
 
   const whole = narrowed ? await computePortfolioSummary(goc) : summary;
 
-  const [perf, recentTrades, cho, pendingUsers, alerts, teamPerf, memberPerf, ibExposure] =
+  const [perf, recentTrades, cho, pendingUsers, alerts, teamPerf, memberPerf, ibExposure, periodPnl] =
     await Promise.all([
       computePerformance(portfolio.id, period, summary.totalPnlBps, series),
       prisma.trade.findMany({
@@ -352,7 +404,11 @@ export default async function DashboardPage({
        * hiệu suất và Alpha. Vị thế, tiền và mọi ô KPI đều là số TẠI THỜI ĐIỂM NÀY. Cho
        * riêng khối này cắt theo thời gian sẽ khiến nó lệch với phần còn lại của trang.
        */
-      seeAllTeams
+      /*
+       * Đang lọc MỘT thành viên thì bỏ khối so sánh giữa các nhóm: con số theo nhóm không
+       * chia được theo người, để lại là một khối không đi theo bộ lọc như mọi khối khác.
+       */
+      seeAllTeams && !requestedUserId
         ? computeTeamPerformance(portfolio.id, {
             onlyTeamId: filter.teamId ?? undefined,
             filter: { strategyId: filter.strategyId, sectorId: filter.sectorId },
@@ -370,9 +426,13 @@ export default async function DashboardPage({
             portfolio.id,
             positionScope === 'SELF'
               ? { onlyUserId: user.id }
-              : positionScope === 'TEAM'
-                ? { onlyTeamId: user.teamId ?? '__no_team__' }
-                : { onlyTeamId: filter.teamId },
+              : requestedUserId &&
+                  (positionScope === 'ALL' ||
+                    (user.teamId !== null && thanhVienDaChon?.teamId === user.teamId))
+                ? { onlyUserId: requestedUserId }
+                : positionScope === 'TEAM'
+                  ? { onlyTeamId: user.teamId ?? '__no_team__' }
+                  : { onlyTeamId: filter.teamId },
           ),
       /*
        * TÀI KHOẢN & VỐN THEO IB. Cổng là `capitalScope`, không phải `positionScope`:
@@ -381,6 +441,11 @@ export default async function DashboardPage({
       capitalScope === 'NONE'
         ? Promise.resolve([])
         : computeIbExposure(portfolio.id, ibOptions),
+      /*
+       * LÃI/LỖ TRONG KỲ — ô "Tổng lãi/lỗ" đi theo bộ lọc Thời gian (yêu cầu của người
+       * dùng). `null` khi chọn "Toàn bộ": khi đó ô giữ số cộng dồn như cũ.
+       */
+      computePeriodPnl(filter, period),
     ]);
 
   const open = summary.positions.filter((p) => p.quantity > 0);
@@ -663,8 +728,11 @@ export default async function DashboardPage({
    * nhóm là số thật. Nhưng lọc theo NGÀNH hay CHIẾN LƯỢC thì tiền vẫn là của toàn
    * danh mục: bảng không có `stockId`, và vốn được cấp cho người chứ không cấp cho
    * ngành. Vì vậy điều kiện ở đây là `filter.teamId`, không phải `narrowed`.
+   *
+   * Tiền cũng theo được chiều NGƯỜI (tài khoản của người đó — xem `computeCash`), nên
+   * lọc một thành viên thì vốn và tiền là của người đó.
    */
-  const cashByTeam = filter.teamId !== undefined;
+  const cashByTeam = filter.teamId !== undefined || filter.userId !== undefined;
   const teamCash = summary.cash;
   const granted = teamCash.contributedCapital + teamCash.otherFlows;
 
@@ -754,6 +822,16 @@ export default async function DashboardPage({
         : portfolioScope === 'SELF'
           ? t.dash.teamLockedSelf
           : t.dash.teamLocked(user.teamNameVi ?? t.dash.noTeam),
+      // Đổi nhóm thì thành viên đang chọn có thể không thuộc nhóm mới — bỏ chọn.
+      resets: ['userId'],
+    },
+    {
+      name: 'userId',
+      label: t.filter.member,
+      allLabel: t.filter.all,
+      options: thanhVienChon.map((u) => ({ value: u.id, label: u.fullName })),
+      lockedReason:
+        portfolioScope === 'SELF' || portfolioScope === 'NONE' ? t.dash.teamLockedSelf : undefined,
     },
     {
       name: 'strategyId',
@@ -780,6 +858,7 @@ export default async function DashboardPage({
 
   const activeFilters = [
     params.teamId && seeAllTeams ? teams.find((t) => t.id === params.teamId)?.nameVi : null,
+    thanhVienDaChon?.fullName ?? null,
     params.strategyId ? strategies.find((s) => s.id === params.strategyId)?.nameVi : null,
     params.sectorId ? sectors.find((s) => s.id === params.sectorId)?.nameVi : null,
   ].filter(Boolean) as string[];
@@ -872,7 +951,9 @@ export default async function DashboardPage({
             cashByTeam
               ? teamCash.noGrant
                 ? t.kpi.noGrantYet
-                : t.kpi.teamContributed
+                : teamCash.scope === 'USER'
+                  ? t.kpi.memberContributed
+                  : t.kpi.teamContributed
               : narrowed
                 ? `${t.kpi.netContributed} · ${t.kpi.notFiltered}`
                 : t.kpi.netContributed
@@ -1001,7 +1082,13 @@ export default async function DashboardPage({
         <Kpi
           icon="wallet"
           tone="up"
-          label={cashByTeam ? t.kpi.teamCash : t.kpi.availableCash}
+          label={
+            !cashByTeam
+              ? t.kpi.availableCash
+              : teamCash.scope === 'USER'
+                ? t.kpi.memberCash
+                : t.kpi.teamCash
+          }
           hint={
             !cashByTeam
               ? t.kpi.hintCash +
@@ -1105,25 +1192,50 @@ export default async function DashboardPage({
         />
 
         <Kpi
-          icon={summary.totalPnl >= 0n ? 'trendUp' : 'trendDown'}
-          tone={summary.totalPnl >= 0n ? 'up' : 'down'}
-          label={t.kpi.totalPnl}
+          icon={(periodPnl ? periodPnl.pnl : summary.totalPnl) >= 0n ? 'trendUp' : 'trendDown'}
+          tone={(periodPnl ? periodPnl.pnl : summary.totalPnl) >= 0n ? 'up' : 'down'}
+          label={periodPnl ? t.kpi.pnlInPeriod(t.period[period]) : t.kpi.totalPnl}
           hint={
-            t.kpi.hintPnl +
-            (summary.investedCost === 0n
-              ? t.kpi.hintPnlNoCost
-              : '')
+            periodPnl
+              ? t.kpi.hintPeriodPnl +
+                (periodPnl.boQuaThuKhac ? t.kpi.hintPeriodPnlStrategy : '') +
+                (periodPnl.thieuGiaDau.length > 0
+                  ? t.kpi.hintPeriodPnlMissing(periodPnl.thieuGiaDau.join(', '))
+                  : '') +
+                (periodPnl.giaDauCu
+                  ? t.kpi.hintPeriodPnlStale(
+                      shortDate(new Date(`${periodPnl.giaDauCu.ngayCuNhat}T00:00:00.000Z`)),
+                      periodPnl.giaDauCu.ma.length,
+                    )
+                  : '')
+              : t.kpi.hintPnl + (summary.investedCost === 0n ? t.kpi.hintPnlNoCost : '')
           }
-          value={<MoneyCompact value={summary.totalPnl} signed />}
+          value={<MoneyCompact value={periodPnl ? periodPnl.pnl : summary.totalPnl} signed />}
           sub={
             /*
+              CÓ KHOẢNG THỜI GIAN thì in lãi/lỗ trong kỳ + ngày bắt đầu, và giữ số CỘNG DỒN
+              ở dòng phụ — đổi bộ lọc không được làm mất con số người dùng vẫn quen đọc.
+
               `ratioToBps` trả 0 khi mẫu số bằng 0, nên in thẳng sẽ ra "0,00% trên
               giá vốn" cho một phạm vi CHƯA BỎ VỐN — cùng loại lỗi đã sửa ở
               `MemberPerformance.returnBps`. Không có giá vốn thì không có tỷ suất.
             */
-            summary.investedCost === 0n
-              ? t.kpi.noCapitalYet
-              : t.kpi.onCost(formatBps(summary.totalPnlBps))
+            periodPnl
+              ? `${
+                  periodPnl.pnlBps === null
+                    ? t.kpi.periodPnlSubNoBase(shortDate(new Date(`${periodPnl.tuNgay}T00:00:00.000Z`)))
+                    : t.kpi.periodPnlSub(
+                        formatBps(periodPnl.pnlBps),
+                        shortDate(new Date(`${periodPnl.tuNgay}T00:00:00.000Z`)),
+                      )
+                } · ${t.kpi.cumulativePnl(formatCompactVnd_vi(summary.totalPnl))}${
+                  periodPnl.giaDauCu
+                    ? ` · ${t.kpi.periodPnlStale(shortDate(new Date(`${periodPnl.giaDauCu.ngayCuNhat}T00:00:00.000Z`)))}`
+                    : ''
+                }`
+              : summary.investedCost === 0n
+                ? t.kpi.noCapitalYet
+                : t.kpi.onCost(formatBps(summary.totalPnlBps))
           }
           chart={
             /* Cùng `valueSeries` với ô đầu, nên cùng điều kiện phạm vi. */
@@ -1132,7 +1244,7 @@ export default async function DashboardPage({
                 values={valueSeries}
                 width={230}
                 height={38}
-                positive={summary.totalPnl >= 0n}
+                positive={(periodPnl ? periodPnl.pnl : summary.totalPnl) >= 0n}
               />
             ) : null
           }

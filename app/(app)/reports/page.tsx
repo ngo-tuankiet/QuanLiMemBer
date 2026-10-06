@@ -80,6 +80,11 @@ export default async function ReportsPage() {
   );
 
   const today = new Date().toISOString().slice(0, 10);
+  // Mặc định tháng TRƯỚC — báo cáo tháng thường làm sau khi tháng đã khép lại.
+  const thangTruoc = (() => {
+    const [y, m] = today.split('-').map(Number) as [number, number];
+    return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+  })();
 
   return (
     <>
@@ -174,6 +179,72 @@ export default async function ReportsPage() {
             <span className="pb-2 text-tiny text-ink-500">
               Để trống ngày = toàn bộ lịch sử
             </span>
+          </form>
+        </Card>
+      ) : null}
+
+      {/* ---------------------------------------------------------------- */}
+      {/* BÁO CÁO VỐN & LỢI NHUẬN THEO TÀI KHOẢN — đúng mẫu Excel của người  */}
+      {/* dùng (baocaoChungKhoan_2026.xlsx, sheet "2026-Thang9").           */}
+      {/* ---------------------------------------------------------------- */}
+      {user.permissions.has('report.export') ? (
+        <Card className="mb-4 p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold text-strong">
+              Báo cáo vốn &amp; lợi nhuận theo tài khoản
+            </h2>
+            <span className="rounded bg-accent-600/20 px-1.5 py-px text-micro font-medium text-accent-400">
+              XLSX · theo tháng
+            </span>
+          </div>
+          <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-slate-muted">
+            Mỗi tài khoản chứng khoán một dòng: Nhánh · Sàn · Số tài khoản · Tên · Vốn ròng từ
+            ngày · Nộp · Rút · Vốn ròng đến ngày · Profit · Tỷ lệ sinh lời — kèm{' '}
+            <span className="text-slate-soft">Bảng vốn</span> theo người (Vốn ban đầu · Nâng vốn ·
+            Cộng gộp). Vốn ròng là <span className="text-slate-soft">tài sản ròng</span>: cổ phiếu
+            theo giá đóng cửa ngày đó + tiền mặt trong tài khoản.
+          </p>
+          <ul className="mt-2 space-y-0.5 text-tiny text-ink-500">
+            <li>Profit = Đến − Từ − Nộp + Rút; Tỷ lệ sinh lời = Profit / (Từ + Nộp). Đều là công thức Excel.</li>
+            <li>Hàng 1 là tổng SUBTOTAL — lọc theo Nhánh hay Tên trong Excel thì tổng chạy theo.</li>
+            <li>Sheet &quot;Ghi chú&quot; ghi cách tính, ngày giá đã dùng và mã nào thiếu giá.</li>
+          </ul>
+
+          <form action="/api/reports/account-pnl" method="get" className="mt-4 flex flex-wrap items-end gap-2">
+            <label className="text-tiny text-slate-muted">
+              <span className="mb-1 block">Tháng</span>
+              <input
+                type="month"
+                name="thang"
+                defaultValue={thangTruoc}
+                max={today.slice(0, 7)}
+                required
+                className="field tabular !py-1.5 sm:!text-xs"
+              />
+            </label>
+            <button
+              type="submit"
+              className="rounded-lg bg-accent-600 px-4 py-2 text-xs font-medium text-white transition hover:bg-accent-500"
+            >
+              Tải báo cáo tháng (.xlsx)
+            </button>
+          </form>
+
+          <form action="/api/reports/account-pnl" method="get" className="mt-2 flex flex-wrap items-end gap-2">
+            <label className="text-tiny text-slate-muted">
+              <span className="mb-1 block">Hoặc từ ngày</span>
+              <input type="date" name="from" max={today} required className="field tabular !py-1.5 sm:!text-xs" />
+            </label>
+            <label className="text-tiny text-slate-muted">
+              <span className="mb-1 block">Đến ngày</span>
+              <input type="date" name="to" max={today} required className="field tabular !py-1.5 sm:!text-xs" />
+            </label>
+            <button
+              type="submit"
+              className="rounded-lg border border-ink-700 px-4 py-2 text-xs font-medium text-slate-soft transition hover:border-accent-500 hover:text-strong"
+            >
+              Tải theo khoảng ngày
+            </button>
           </form>
         </Card>
       ) : null}

@@ -19,6 +19,7 @@ import type { ReactElement } from 'react';
 import { prisma } from '@/lib/prisma';
 import { createSession } from '@/auth/session';
 import { computeIbExposure } from '@/domain/portfolio-engine';
+import { DONUT_MAX_SEGMENTS } from '@/components/charts';
 import { ROLE, USER_STATUS } from '@/lib/enums';
 import Page from '../app/(app)/dashboard/page';
 
@@ -72,11 +73,28 @@ function khoiIb(html: string): string {
   return html.slice(dau < 0 ? iTieuDe : dau, sau < 0 ? html.length : sau);
 }
 
-/** Những tên IB xuất hiện trong khối. */
-function tenIbHienRa(html: string): string[] {
+/**
+ * Những tên IB xuất hiện trong khối, trong số `ungVien`.
+ *
+ * Tên lấy TỪ DỮ LIỆU (`computeIbExposure`), không gõ cứng: bản đầu gõ cứng tên IB của bộ
+ * dữ liệu cũ ('Mỹ', 'Bùi Hải'…), và sau khi nạp dữ liệu VPS ngày 30/09 thì mười phép kiểm
+ * trượt dù khối IB vẫn đúng.
+ */
+function tenIbHienRa(html: string, ungVien: readonly string[]): string[] {
   const khoi = khoiIb(html);
-  const ten = ['Mỹ', 'Bùi Hải', 'Khang', 'a Hậu', 'TamCk', 'Không qua IB'];
-  return ten.filter((t) => khoi.includes(t));
+  return ungVien.filter((t) => khoi.includes(t));
+}
+
+const nhanIb = (x: { isDirect: boolean; label: string }): string =>
+  x.isDirect ? 'Không qua IB' : x.label;
+
+/**
+ * Tên NÀO được hiện tên riêng: khối gộp phần đuôi thành "Khác" khi quá
+ * `DONUT_MAX_SEGMENTS` IB (8 slot màu, xem dashboard). Khi đó chỉ N−1 IB đầu có tên.
+ */
+function mongHien<T extends { isDirect: boolean; label: string }>(ds: readonly T[]): string[] {
+  const gon = ds.length <= DONUT_MAX_SEGMENTS;
+  return (gon ? ds : ds.slice(0, DONUT_MAX_SEGMENTS - 1)).map(nhanIb);
 }
 
 async function main(): Promise<void> {
@@ -117,6 +135,7 @@ async function main(): Promise<void> {
 
   const toanBo = await computeIbExposure(portfolio.id);
   const cuaTeamA = await computeIbExposure(portfolio.id, { onlyTeamId: teamA });
+  const tatCaTen = toanBo.map(nhanIb);
   console.log(
     `Nen: toan bo ${toanBo.length} IB / ${toanBo.reduce((n, x) => n + x.accountCount, 0)} tk; ` +
       `nhom "${tenTeamA}" ${cuaTeamA.length} IB / ${cuaTeamA.reduce((n, x) => n + x.accountCount, 0)} tk`,
@@ -136,7 +155,13 @@ async function main(): Promise<void> {
       khoi.includes(`${toanBo.reduce((n, x) => n + x.accountCount, 0)} tài khoản`),
       'phụ đề in đúng tổng số tài khoản',
     );
-    kiem(tenIbHienRa(html).length === toanBo.length, 'hiện đủ mọi IB', tenIbHienRa(html).join(', '));
+    const hien = tenIbHienRa(html, tatCaTen);
+    const mong = mongHien(toanBo);
+    kiem(
+      hien.length === mong.length && mong.every((t) => hien.includes(t)),
+      `hiện đủ ${mong.length} IB có tên riêng${toanBo.length > mong.length ? ' (phần còn lại gộp "Khác")' : ''}`,
+      hien.join(', '),
+    );
     kiem(!khoi.includes('không có quyền'), 'không hiện thông báo thiếu quyền');
     kiem(!html.includes('Phân bổ theo ngành'), 'thẻ "Phân bổ theo ngành" cũ đã bỏ hẳn');
   }
@@ -145,17 +170,17 @@ async function main(): Promise<void> {
   {
     const tm = await taoNguoi('quanlynhom', ROLE.TEAM_MANAGER, teamA);
     const html = await xemTrang(tm.id);
-    const hien = tenIbHienRa(html);
+    const hien = tenIbHienRa(html, tatCaTen);
+    const mong = mongHien(cuaTeamA);
 
     kiem(khoiIb(html) !== '', 'khối IB có mặt');
-    kiem(hien.length === cuaTeamA.length, `chỉ hiện ${cuaTeamA.length} IB của nhóm mình`, hien.join(', '));
-    for (const x of cuaTeamA) {
-      const nhan = x.isDirect ? 'Không qua IB' : x.label;
+    kiem(hien.length === mong.length, `chỉ hiện ${mong.length} IB có tên của nhóm mình`, hien.join(', '));
+    for (const nhan of mong) {
       kiem(hien.includes(nhan), `có IB "${nhan}" của nhóm mình`);
     }
     const ngoai = toanBo.filter((x) => !cuaTeamA.some((y) => y.key === x.key));
     for (const x of ngoai) {
-      const nhan = x.isDirect ? 'Không qua IB' : x.label;
+      const nhan = nhanIb(x);
       kiem(!hien.includes(nhan), `KHÔNG lộ IB "${nhan}" của nhóm khác`);
     }
   }
@@ -167,10 +192,11 @@ async function main(): Promise<void> {
       select: { id: true },
     });
     const html = await xemTrang(tm.id, { teamId: teamKhac.id });
-    const hien = tenIbHienRa(html);
+    const hien = tenIbHienRa(html, tatCaTen);
+    const mong = mongHien(cuaTeamA);
 
     kiem(
-      hien.length === cuaTeamA.length && cuaTeamA.every((x) => hien.includes(x.isDirect ? 'Không qua IB' : x.label)),
+      hien.length === mong.length && mong.every((t) => hien.includes(t)),
       `?teamId=${teamKhac.nameVi} vẫn chỉ ra nhóm của mình`,
       hien.join(', '),
     );
@@ -184,7 +210,7 @@ async function main(): Promise<void> {
 
     kiem(khoi !== '', 'khối vẫn có mặt (không biến mất không lời giải thích)');
     kiem(khoi.includes('Bạn không có quyền xem dữ liệu vốn'), 'nói rõ là thiếu quyền');
-    kiem(tenIbHienRa(html).length === 0, 'không tên IB nào lọt ra', tenIbHienRa(html).join(', '));
+    kiem(tenIbHienRa(html, tatCaTen).length === 0, 'không tên IB nào lọt ra', tenIbHienRa(html, tatCaTen).join(', '));
     kiem(!khoi.includes('₫'), 'không con số tiền nào lọt ra');
   }
 
@@ -193,7 +219,7 @@ async function main(): Promise<void> {
     const ht = await taoNguoi('hotrotrade', ROLE.SUPPORTING_EXECUTION, teamA);
     const html = await xemTrang(ht.id);
     kiem(khoiIb(html).includes('Bạn không có quyền xem dữ liệu vốn'), 'nói rõ là thiếu quyền');
-    kiem(tenIbHienRa(html).length === 0, 'không tên IB nào lọt ra');
+    kiem(tenIbHienRa(html, tatCaTen).length === 0, 'không tên IB nào lọt ra');
   }
 
   console.log('\n6. Nhóm không có tài khoản nào — trạng thái rỗng đúng nghĩa');
@@ -207,7 +233,7 @@ async function main(): Promise<void> {
       'nói "chưa có tài khoản", KHÔNG nói thiếu quyền',
     );
     kiem(!khoi.includes('không có quyền'), 'không lẫn sang thông báo thiếu quyền');
-    kiem(tenIbHienRa(html).length === 0, 'không tên IB nào lọt ra');
+    kiem(tenIbHienRa(html, tatCaTen).length === 0, 'không tên IB nào lọt ra');
   }
 
   console.log(`\n===== ${dat} đạt, ${truot} trượt =====`);

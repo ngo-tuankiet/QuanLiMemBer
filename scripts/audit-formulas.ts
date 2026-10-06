@@ -20,6 +20,7 @@ import {
   computePerformance,
   computePerformanceSeries,
   computePortfolioSummary,
+  computePriorRealized,
   computePositions,
   computeTeamPerformance,
 } from '@/domain/portfolio-engine';
@@ -358,12 +359,15 @@ async function main(): Promise<void> {
     const inv = open.reduce((s, p) => s + p.marketValue, 0n);
     const cost = open.reduce((s, p) => s + p.totalCost, 0n);
     const unre = open.reduce((s, p) => s + p.unrealizedPnl, 0n);
-    const real = positions.reduce((s, p) => s + p.realizedPnl, 0n);
+    // Đã chốt = Σ theo mã + lỗ đã chốt TRƯỚC KHI VÀO HỆ THỐNG (không thuộc mã nào).
+    const truoc = await computePriorRealized(pid);
+    const real = positions.reduce((s, p) => s + p.realizedPnl, 0n) + truoc;
 
     eq(summary.investedValue, inv, 'investedValue = Σ giá trị thị trường vị thế mở');
     eq(summary.investedCost, cost, 'investedCost = Σ giá vốn vị thế mở');
     eq(summary.unrealizedPnl, unre, 'unrealizedPnl = Σ theo mã');
-    eq(summary.realizedPnl, real, 'realizedPnl = Σ theo mã (gồm cả mã đã đóng)');
+    eq(summary.priorRealizedPnl, truoc, 'priorRealizedPnl = −Σ dòng PRIOR_LOSS');
+    eq(summary.realizedPnl, real, 'realizedPnl = Σ theo mã (gồm cả mã đã đóng) + lỗ trước khi vào hệ thống');
     eq(summary.totalPnl, real + unre, 'totalPnl = đã chốt + chưa chốt');
     eq(
       summary.portfolioValue,

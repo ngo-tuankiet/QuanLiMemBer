@@ -30,6 +30,7 @@ import {
   computeCash,
   computeIbExposure,
   computePositions,
+  computePriorRealized,
   computeSectorExposure,
   computeStrategyAllocation,
   computeTeamPerformance,
@@ -119,7 +120,13 @@ async function main(): Promise<void> {
   const html = await ketXuat(
     await (DashboardPage as unknown as (p: {
       searchParams: Promise<Record<string, string | undefined>>;
-    }) => Promise<ReactElement>)({ searchParams: Promise.resolve({}) }),
+    }) => Promise<ReactElement>)({
+      /*
+       * Kỳ "Toàn bộ": từ khi ô Tổng lãi/lỗ đi theo bộ lọc Thời gian, kỳ mặc định (từ đầu
+       * năm) hiện lãi/lỗ TRONG KỲ. Bài này kiểm số CỘNG DỒN, nên phải chọn "Toàn bộ".
+       */
+      searchParams: Promise.resolve({ period: 'ALL' }),
+    }),
   );
 
   kiem(html.length > 5_000, 'trang kết xuất được', `${html.length} ký tự`);
@@ -131,7 +138,10 @@ async function main(): Promise<void> {
   const marketValue = open.reduce((s, p) => s + p.marketValue, 0n);
   const investedCost = open.reduce((s, p) => s + p.totalCost, 0n);
   const unrealized = open.reduce((s, p) => s + p.unrealizedPnl, 0n);
-  const realized = positions.reduce((s, p) => s + p.realizedPnl, 0n);
+  // Đã chốt GỒM lỗ trước khi vào hệ thống (ô "Vốn ban đầu thực tế") — không thuộc mã nào.
+  const realized =
+    positions.reduce((s, p) => s + p.realizedPnl, 0n) +
+    (await computePriorRealized(portfolio.id));
   const totalPnl = realized + unrealized;
 
   const cash = await computeCash(portfolio.id);

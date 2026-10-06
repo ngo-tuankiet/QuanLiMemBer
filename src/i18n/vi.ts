@@ -66,16 +66,31 @@ export const vi = {
     initialCapital: 'Vốn ban đầu',
     netContributed: 'vốn góp ròng · nạp − rút',
     teamContributed: 'vốn cấp cho nhóm · nạp − rút',
+    memberContributed: 'vốn góp của người này · nạp − rút',
     vsCapital: 'giá trị danh mục so với vốn',
     hintInitialCapital:
       'Vốn góp ròng: tổng tiền đã nạp trừ tổng tiền đã rút, chỉ tính các lần đã xác nhận. ' +
       'Không gồm cổ tức hay lãi tiền gửi — đó là thu nhập của danh mục, không phải tiền bỏ vào. ' +
       'Mũi tên dưới số cho biết giá trị danh mục hiện nay hơn hay kém số vốn này bao nhiêu.',
     teamCash: 'Tiền của nhóm',
+    memberCash: 'Tiền của người này',
     totalPnl: 'Tổng lãi/lỗ',
     alphaVs: (chiSo: string) => `Alpha so với ${chiSo}`,
     ofPortfolio: (pct: string) => `${pct} danh mục`,
     onCost: (pct: string) => `${pct} trên giá vốn`,
+    pnlInPeriod: (ky: string) => `Lãi/lỗ · ${ky}`,
+    periodPnlSub: (pct: string, tu: string) => `${pct} · từ ${tu}`,
+    periodPnlSubNoBase: (tu: string) => `từ ${tu}`,
+    cumulativePnl: (x: string) => `cộng dồn ${x}`,
+    hintPeriodPnl:
+      'Lãi/lỗ TRONG KHOẢNG đã chọn ở bộ lọc Thời gian: giá trị vị thế bây giờ − giá trị đầu kỳ ' +
+      '(giá đóng cửa ngày trước kỳ) − tiền mua + tiền bán trong kỳ + cổ tức và thu/chi khác. ' +
+      'Không tính nạp/rút vốn. Tỷ lệ % trên (giá trị đầu kỳ + tiền mua trong kỳ). Chọn "Toàn bộ" để xem lãi/lỗ cộng dồn.',
+    hintPeriodPnlStrategy: ' Đang lọc theo chiến lược: cổ tức và thu khác không chia được theo chiến lược nên không gồm.',
+    hintPeriodPnlMissing: (ma: string) => ` Chưa có giá đầu kỳ của ${ma} — tạm tính bằng giá vốn.`,
+    periodPnlStale: (ngay: string) => `⚠ giá đầu kỳ cũ (${ngay})`,
+    hintPeriodPnlStale: (ngay: string, so: number) =>
+      ` CẢNH BÁO: lịch sử giá của ${so} mã chỉ có tới ${ngay}, nên giá trị đầu kỳ dùng giá ngày đó và lãi/lỗ trong kỳ gồm cả biến động từ ${ngay}. Chạy đồng bộ lịch sử giá để sửa.`,
     holdingReserve: (tien: string) => `giữ ${tien} quỹ dự phòng`,
     /*
      * CÂU QUAN TRỌNG NHẤT KHI TIỀN KHẢ DỤNG BẰNG 0.
@@ -165,6 +180,7 @@ export const vi = {
   filter: {
     portfolio: 'Danh mục',
     team: 'Nhóm',
+    member: 'Thành viên',
     strategy: 'Chiến lược',
     sector: 'Ngành',
     period: 'Thời gian',

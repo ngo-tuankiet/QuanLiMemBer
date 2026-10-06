@@ -12,6 +12,8 @@ import { whoCanApproveWithdrawals } from '@/approvals/queue';
 import { AccountValueBars, type AccountValueRow } from '@/components/AccountValueBars';
 import { kiemDongTaiKhoan, lyDoChuaDong } from '@/accounts/close-rules';
 import { SuaDongVonForm, XoaDongVonForm, type DongVon } from '@/components/CapitalFlowAdmin';
+import { InitialCapitalForm } from '@/components/InitialCapitalForm';
+import { docVonBanDau, khongPhaiCapVonBanDau, laCapVonBanDau } from '@/accounts/initial-capital';
 import { PORTFOLIO_STATUS } from '@/lib/enums';
 import {
   AddBrokerAccountForm,
@@ -24,6 +26,7 @@ import {
   BROKER,
   BROKER_LABEL_VI,
   CAPITAL_FLOW_SIGN,
+  CAPITAL_FLOW_TYPE,
   type Broker,
   type CapitalFlowType,
 } from '@/lib/enums';
@@ -47,6 +50,7 @@ export async function BrokerAccountsCard({
   canManageIb = false,
   canEditFlows = false,
   canDeleteFlows = false,
+  xemGiaTri = false,
   className,
 }: {
   userId: string;
@@ -71,8 +75,17 @@ export async function BrokerAccountsCard({
   canEditFlows?: boolean;
   /** Xoá hẳn dòng nạp/rút (`capital.delete`). */
   canDeleteFlows?: boolean;
+  /**
+   * Người xem (KHÔNG phải chính chủ) được xem khối "Giá trị từng tài khoản" — vị thế và
+   * tiền của từng tài khoản. Theo vai trò: quản lý nhóm xem người cùng nhóm, quản lý cấp
+   * cao và admin xem mọi người (xem trang /members/[id]). Chính chủ luôn xem được.
+   *
+   * Chỉ là XEM: form nạp/rút, đóng/mở tài khoản vẫn chỉ chính chủ.
+   */
+  xemGiaTri?: boolean;
   className?: string;
 }) {
+  const thayGiaTri = isSelf || xemGiaTri;
   /*
    * Chiến lược nạp cùng lượt với tài khoản, chỉ khi có form.
    *
@@ -112,7 +125,7 @@ export async function BrokerAccountsCard({
         capitalFlows: {
           where: { status: 'CONFIRMED' },
           orderBy: { occurredAt: 'desc' },
-          select: { id: true, flowType: true, amount: true, occurredAt: true },
+          select: { id: true, flowType: true, amount: true, occurredAt: true, reference: true },
         },
       },
     }),
@@ -125,7 +138,7 @@ export async function BrokerAccountsCard({
         })
       : Promise.resolve([]),
 
-    portfolio && isSelf
+    portfolio && thayGiaTri
       ? computeAccountBalances(portfolio.id, userId)
       : Promise.resolve([]),
 
@@ -135,7 +148,7 @@ export async function BrokerAccountsCard({
      * Cùng điều kiện với `balances` ở ngay trên, và phải cùng: bảng vị thế nằm
      * TRONG khối thanh, nên ai không thấy thanh thì cũng không có gì để bấm.
      */
-    portfolio && isSelf
+    portfolio && thayGiaTri
       ? computeAccountPositions(portfolio.id, userId)
       : Promise.resolve(new Map<string, AccountPosition[]>()),
 
@@ -199,6 +212,8 @@ export async function BrokerAccountsCard({
           where: {
             brokerAccount: { userId },
             flowType: { in: ['CONTRIBUTION', 'WITHDRAWAL'] },
+            // Cặp "vốn ban đầu thực tế" có ô sửa riêng — sửa lẻ một nửa là lệch tiền.
+            ...khongPhaiCapVonBanDau,
           },
           orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
           select: {
@@ -270,6 +285,12 @@ export async function BrokerAccountsCard({
   const conLaiTheoTK = new Map(balances.map((b) => [b.accountId, b.available]));
 
   /*
+   * VỐN BAN ĐẦU THỰC TẾ — khoản lỗ đã chốt trước khi vào hệ thống của từng tài khoản.
+   * Ai thấy thẻ cũng thấy khoản đã ghi; chỉ người có `capital.update` mới có ô nhập.
+   */
+  const vonBanDau = await docVonBanDau(accounts.map((a) => a.id));
+
+  /*
    * Cộng dòng vốn THEO DẤU của `flowType`, không cộng thẳng `amount`.
    *
    * `capital_flows.amount` luôn dương; chiều tiền nằm ở `CAPITAL_FLOW_SIGN`. Cộng
@@ -277,10 +298,19 @@ export async function BrokerAccountsCard({
    */
   const rows = accounts.map((a) => ({
     ...a,
-    net: a.capitalFlows.reduce(
-      (sum, f) => sum + BigInt(CAPITAL_FLOW_SIGN[f.flowType as CapitalFlowType]) * f.amount,
-      0n,
-    ),
+    /*
+     * BỎ dòng PRIOR_LOSS: "vốn ròng đã nạp" là tiền đã bỏ vào, và khoản lỗ trước khi vào
+     * hệ thống là phần VỐN đó đã mất — không phải tiền rút ra. Dòng nạp đi cặp với nó vẫn
+     * được cộng, nên cột này bằng đúng vốn ban đầu thực tế.
+     */
+    net: a.capitalFlows
+      .filter((f) => f.flowType !== CAPITAL_FLOW_TYPE.PRIOR_LOSS)
+      .reduce(
+        (sum, f) => sum + BigInt(CAPITAL_FLOW_SIGN[f.flowType as CapitalFlowType]) * f.amount,
+        0n,
+      ),
+    soLuotNapRut: a.capitalFlows.filter((f) => !laCapVonBanDau(f.reference)).length,
+    loTruoc: vonBanDau.get(a.id)?.loTruoc ?? 0n,
     brokerLabel:
       a.broker === BROKER.OTHER
         ? (a.brokerOther ?? 'Khác')
@@ -420,8 +450,14 @@ export async function BrokerAccountsCard({
                     <td className="tabular py-2.5 text-right">
                       <Money value={a.net} className="text-strong" />
                       <span className="block text-tiny text-ink-500">
-                        {a.capitalFlows.length} lượt nạp/rút
+                        {a.soLuotNapRut} lượt nạp/rút
                       </span>
+                      {a.loTruoc > 0n ? (
+                        <span className="block text-tiny text-down-500">
+                          gồm <Money value={-a.loTruoc} signed className="text-down-500" /> lỗ
+                          trước khi vào hệ thống
+                        </span>
+                      ) : null}
                       {/*
                         Chờ duyệt hiện Ở ĐÂY, cạnh con số vốn, chứ không phải một thông báo
                         riêng: người vừa bấm rút sẽ nhìn vào đúng chỗ này để hỏi "tiền đã
@@ -579,6 +615,61 @@ export async function BrokerAccountsCard({
                       {canEditFlows ? <SuaDongVonForm flow={duLieu} /> : null}
                       {canDeleteFlows ? <XoaDongVonForm flow={duLieu} /> : null}
                     </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </details>
+      ) : null}
+
+      {/*
+        VỐN BAN ĐẦU THỰC TẾ — chỉ người sửa được sổ vốn (`capital.update`), chỉ tài khoản
+        có dòng "Vốn đầu kỳ" (tài khoản mở mới trong hệ thống không có gì "trước khi vào").
+      */}
+      {canEditFlows && rows.some((r) => vonBanDau.get(r.id)?.dauKy) ? (
+        <details className="mt-4 rounded-lg border border-ink-700">
+          <summary className="cursor-pointer px-3 py-2 text-xs text-slate-muted hover:text-slate-soft">
+            Vốn ban đầu thực tế — lỗ đã chốt trước khi vào hệ thống
+          </summary>
+          <div className="border-t border-ink-700 p-3">
+            <p className="mb-3 text-tiny leading-relaxed text-slate-muted">
+              &quot;Vốn đầu kỳ&quot; được ghi bằng giá vốn các mã đang giữ + tiền mặt lúc vào hệ
+              thống, nên khoản đã lỗ trước đó không nằm ở đâu. Nhập số vốn đã thật sự bỏ vào:
+              hệ thống ghi phần chênh là lỗ đã chốt, vốn ban đầu tăng tương ứng, tiền mặt
+              không đổi.
+            </p>
+            <ul className="space-y-2">
+              {rows.map((r) => {
+                const v = vonBanDau.get(r.id);
+                if (!v?.dauKy) return null;
+                return (
+                  <li key={r.id} className="border-b border-ink-800 pb-2 last:border-0">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="text-xs font-medium text-strong">
+                        {r.brokerLabel} · {r.accountNo}
+                      </span>
+                      <span className="tabular text-tiny text-slate-muted">
+                        đầu kỳ <Money value={v.dauKy.amount} className="text-slate-soft" />
+                      </span>
+                      {v.loTruoc > 0n ? (
+                        <span className="tabular text-tiny text-slate-muted">
+                          · thực tế <Money value={v.vonThucTe ?? 0n} className="text-strong" /> · lỗ
+                          trước <Money value={-v.loTruoc} signed className="text-down-500" />
+                        </span>
+                      ) : (
+                        <span className="text-tiny text-ink-500">· chưa nhập</span>
+                      )}
+                      <span className="ml-auto">
+                        <InitialCapitalForm
+                          accountId={r.id}
+                          label={`${r.brokerLabel} · ${r.accountNo}`}
+                          dauKy={v.dauKy.amount.toString()}
+                          vonThucTe={(v.vonThucTe ?? v.dauKy.amount).toString()}
+                          daGhi={v.loTruoc > 0n}
+                        />
+                      </span>
+                    </div>
                   </li>
                 );
               })}

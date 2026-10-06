@@ -183,6 +183,64 @@
 }
 
 /* ==========================================================================
+   KHUNG ỨNG DỤNG (sidebar trái + thanh trên) — NỀN XANH HẢI QUÂN.
+
+   Theo mẫu người dùng gửi: khung tối màu navy, chữ trắng, nội dung ở giữa vẫn sáng.
+
+   Làm bằng cách ĐỊNH NGHĨA LẠI TOKEN trong phạm vi `.chrome`, không sửa từng class:
+   mọi tiện ích Tailwind đọc `var(--ink-900)`, `var(--fg-soft)`… (xem `@theme inline`
+   bên dưới), nên nút ngôn ngữ, nút sáng/tối, huy hiệu, menu con… tự đổi theo mà không
+   bản nào bị sót. `color-scheme: dark` để ô chọn và thanh cuộn trong khung cũng tối.
+
+   `--accent` thành TRẮNG trong khung: mục menu đang xem, chữ nhận diện và logo đều đọc
+   màu nhấn, và trên nền navy chúng phải trắng như mẫu.
+   ========================================================================== */
+.chrome {
+  color-scheme: dark;
+  color: var(--fg-soft);
+
+  --ink-950: #15223a;
+  --ink-900: #1b2a46;
+  --ink-850: #213253;
+  --ink-800: #283b5e;
+  --ink-700: #32476d;
+  --ink-600: #44597f;
+  --ink-500: #95a3bb; /* 5,6:1 trên nền khung */
+
+  --fg-strong: #ffffff;
+  --fg-soft: #dbe3ef;
+  --fg-muted: #aab6ca; /* 7,2:1 */
+
+  --accent: #ffffff;
+  --accent-strong: #7ea7e6; /* nền mục đang chọn = màu này ở 15% trên navy */
+  --accent-soft: #c9dbf6;
+  --up: #3fcf8e;
+  --down: #ff7a82;
+  --warn: #f5c542;
+  --serious: #fb9a55;
+}
+
+/* Chế độ tối: cùng khung navy, đậm hơn một bậc để không sáng hơn phần nội dung. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .chrome {
+    --ink-950: #0b1322;
+    --ink-900: #101a2c;
+    --ink-850: #15213a;
+    --ink-800: #1b2a46;
+    --ink-700: #253757;
+    --ink-600: #33476b;
+  }
+}
+:root[data-theme='dark'] .chrome {
+  --ink-950: #0b1322;
+  --ink-900: #101a2c;
+  --ink-850: #15213a;
+  --ink-800: #1b2a46;
+  --ink-700: #253757;
+  --ink-600: #33476b;
+}
+
+/* ==========================================================================
    Nối token vào Tailwind.
    `inline` để Tailwind phát ra `var(--…)` thay vì sao chép giá trị — đó là
    điều kiện để đổi chủ đề mà không cần build lại CSS.

@@ -52,16 +52,31 @@ export const en: Dict = {
     initialCapital: 'Initial Capital',
     netContributed: 'net contributed · deposits − withdrawals',
     teamContributed: 'granted to team · deposits − withdrawals',
+    memberContributed: "this member's capital · deposits − withdrawals",
     vsCapital: 'portfolio value vs capital',
     hintInitialCapital:
       'Net contributed capital: all confirmed deposits minus all confirmed withdrawals. ' +
       'Dividends and interest are excluded — they are portfolio income, not money put in. ' +
       'The arrow shows how far today\'s portfolio value is above or below this capital.',
     teamCash: 'Team cash',
+    memberCash: "Member's cash",
     totalPnl: 'Total P&L',
     alphaVs: (chiSo: string) => `Alpha vs ${chiSo}`,
     ofPortfolio: (pct: string) => `${pct} of portfolio`,
     onCost: (pct: string) => `${pct} on cost`,
+    pnlInPeriod: (ky: string) => `P&L · ${ky}`,
+    periodPnlSub: (pct: string, tu: string) => `${pct} · since ${tu}`,
+    periodPnlSubNoBase: (tu: string) => `since ${tu}`,
+    cumulativePnl: (x: string) => `cumulative ${x}`,
+    hintPeriodPnl:
+      'P&L WITHIN the selected time filter: position value now − value at the start (prior close) ' +
+      '− buys + sells in the period + dividends and other income. Deposits/withdrawals excluded. ' +
+      '% is on (start value + buys in the period). Pick "All" for cumulative P&L.',
+    hintPeriodPnlStrategy: ' Filtering by strategy: dividends and other income cannot be split by strategy, so they are excluded.',
+    hintPeriodPnlMissing: (ma: string) => ` No start-of-period price for ${ma} — valued at cost.`,
+    periodPnlStale: (ngay: string) => `⚠ stale start price (${ngay})`,
+    hintPeriodPnlStale: (ngay: string, so: number) =>
+      ` WARNING: price history for ${so} symbols stops at ${ngay}, so the start value uses that day and the period P&L includes moves since ${ngay}. Sync price history to fix.`,
     holdingReserve: (tien: string) => `${tien} held in reserve`,
     reserveShortfall: (tien: string) => `${tien} short of the reserve floor`,
     deployable: (tien: string) => `${tien} deployable`,
@@ -137,6 +152,7 @@ export const en: Dict = {
   filter: {
     portfolio: 'Portfolio',
     team: 'Team',
+    member: 'Member',
     strategy: 'Strategy',
     sector: 'Sector',
     period: 'Period',
