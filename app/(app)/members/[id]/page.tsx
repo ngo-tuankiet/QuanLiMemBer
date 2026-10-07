@@ -338,6 +338,7 @@ export default async function MemberDetailPage({
         canManageIb={viewer.permissions.has('ib.manage')}
         canEditFlows={viewer.permissions.has('capital.update')}
         canDeleteFlows={viewer.permissions.has('capital.delete')}
+        xemGiaTri={scope === 'ALL' || (scope === 'TEAM' && sameTeam)}
         className="mb-4"
       />
 
